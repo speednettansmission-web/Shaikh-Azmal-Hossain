@@ -1,0 +1,6 @@
+{
+  "name": "SpeedNet COO Operations & KPI Hub",
+  "description": "Daily, monthly, and yearly JD monitoring, KPI-prioritized task execution, 1-month advance license/agreement expiry alarms, and official reporting suite for SpeedNet COO.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
