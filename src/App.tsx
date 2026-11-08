@@ -188,8 +188,18 @@ export default function App() {
     await apiMutate('/api/backup/import', 'POST', incoming);
   };
 
+  const handleAddChecklistItem = async (item: Partial<ChecklistItem>) => {
+    await apiMutate('/api/checklist', 'POST', item);
+    showToast('নতুন রেসপনসিবিলিটি চেকলিস্টে যুক্ত হয়েছে।');
+  };
+
   const handleUpdateChecklistItem = async (id: string, patch: Partial<ChecklistItem>) => {
     await apiMutate(`/api/checklist/${id}`, 'PATCH', patch);
+  };
+
+  const handleDeleteChecklistItem = async (id: string) => {
+    await apiMutate(`/api/checklist/${id}`, 'DELETE');
+    showToast('চেকলিস্ট আইটেমটি মুছে ফেলা হয়েছে।');
   };
 
   const handleResetChecklist = async (cadence: 'daily' | 'monthly') => {
@@ -238,20 +248,23 @@ export default function App() {
   const activeBreadcrumb = navItems.find((n) => n.id === activeTab)?.label || 'Dashboard';
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row">
-      {/* Desktop Sidebar (264px width) */}
-      <aside className="hidden lg:flex lg:w-[264px] lg:flex-col lg:fixed lg:inset-y-0 bg-white border-r border-slate-200 z-30 no-print">
-        <div className="h-16 px-6 flex items-center border-b border-slate-200">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50/30 text-slate-900 flex flex-col lg:flex-row">
+      {/* Desktop Sidebar (264px width) with Royal Glossy Gradient */}
+      <aside className="hidden lg:flex lg:w-[264px] lg:flex-col lg:fixed lg:inset-y-0 bg-gradient-to-b from-slate-950 via-slate-900 to-indigo-950 text-slate-100 border-r border-indigo-900/40 z-30 no-print shadow-xl">
+        <div className="h-16 px-6 flex items-center justify-between border-b border-indigo-900/50 bg-black/20 backdrop-blur-sm">
           <button
             type="button"
             onClick={() => handleNavigate('overview')}
-            className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
+            className="flex items-center gap-2 text-base font-extrabold tracking-tight text-white whitespace-nowrap shrink-0 cursor-pointer"
           >
-            SPEED NET · COO Hub
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-400 ring-4 ring-amber-400/20" />
+            <span className="bg-gradient-to-r from-white via-slate-100 to-amber-200 bg-clip-text text-transparent">
+              SPEED NET · COO Hub
+            </span>
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-5 space-y-1">
+        <nav className="flex-1 px-3 py-5 space-y-1.5 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
@@ -260,20 +273,20 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => handleNavigate(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-all cursor-pointer ${
                   active
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-gradient-to-r from-blue-700 to-indigo-700 text-white shadow-md shadow-blue-900/30 ring-1 ring-white/20'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <span className="inline-flex items-center gap-2.5 whitespace-nowrap">
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-amber-300' : 'text-slate-400'}`} />
                   <span>{item.label}</span>
                 </span>
                 {typeof item.count === 'number' && item.count > 0 && (
                   <span
-                    className={`font-mono text-xs font-semibold tabular-nums ${
-                      active ? 'text-amber-300' : 'text-red-600'
+                    className={`font-mono text-xs font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                      active ? 'bg-amber-400 text-slate-950' : 'bg-red-600/90 text-white'
                     }`}
                   >
                     {item.count}
@@ -284,26 +297,26 @@ export default function App() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-200 space-y-3">
+        <div className="p-4 border-t border-indigo-900/50 bg-black/25 backdrop-blur-sm space-y-3">
           <button
             type="button"
             onClick={() => setServerModalOpen(true)}
-            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-200 bg-white/10 border border-white/15 rounded-xl hover:bg-white/15 transition-all cursor-pointer shadow-xs"
           >
             <span className="inline-flex items-center gap-2 whitespace-nowrap">
-              <Server className="h-3.5 w-3.5 text-blue-600" />
+              <Server className="h-3.5 w-3.5 text-blue-400" />
               <span>Local IP / Server Access</span>
             </span>
-            <span className="font-mono text-slate-400 tabular-nums">:3000</span>
+            <span className="font-mono text-amber-300 tabular-nums">:3000</span>
           </button>
 
           <div className="px-1 text-xs">
-            <div className="font-semibold text-slate-900 truncate">
+            <div className="font-bold text-white truncate">
               {effectiveDb.settings.employeeName}
             </div>
-            <div className="text-slate-500 truncate">{effectiveDb.settings.designation}</div>
-            <div className="text-slate-400 truncate mt-0.5">
-              Reports to: MD / Chairman
+            <div className="text-slate-300 truncate">{effectiveDb.settings.designation}</div>
+            <div className="text-amber-300/80 font-mono text-[11px] truncate mt-0.5">
+              CC: {effectiveDb.settings.branchOfficialCcEmail}
             </div>
           </div>
         </div>
@@ -375,44 +388,51 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 lg:pl-[264px] flex flex-col min-w-0">
-        {/* Clean 3-Zone Top Bar Contract */}
-        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between gap-8 sticky top-0 z-20 no-print">
+        {/* Clean 3-Zone Top Bar Contract with Royal Glossy Appearance */}
+        <header className="h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-8 flex items-center justify-between gap-8 sticky top-0 z-20 no-print shadow-xs">
           {/* Zone 1: Mobile Menu Trigger + Contextual Breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-slate-900"
+              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100"
               aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div className="text-sm text-slate-500 truncate">
-              <span className="hidden sm:inline">SpeedNet Operations / </span>
-              <strong className="font-semibold text-slate-900">{activeBreadcrumb}</strong>
+              <span className="hidden sm:inline font-medium text-slate-400">SpeedNet Operations / </span>
+              <strong className="font-bold text-slate-900">{activeBreadcrumb}</strong>
             </div>
           </div>
 
           {/* Zone 2: Quick Horizontal Links on Desktop */}
-          <nav className="hidden xl:flex items-center gap-6 text-xs font-medium text-slate-600">
+          <nav className="hidden xl:flex items-center gap-6 text-xs font-semibold text-slate-600">
+            <button
+              type="button"
+              onClick={() => handleNavigate('checklists')}
+              className="hover:text-blue-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              Daily/Monthly চেকলিস্ট: <span className="font-mono font-bold text-amber-600 tabular-nums">{pendingChecklistCount} পেন্ডিং</span>
+            </button>
             <button
               type="button"
               onClick={() => handleNavigate('jd-kpi')}
-              className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="hover:text-blue-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              KPI Score: <span className="font-mono font-semibold text-slate-900 tabular-nums">{kpiSummary.totalScore.toFixed(1)}/100</span>
+              KPI Score: <span className="font-mono font-bold text-slate-900 tabular-nums">{kpiSummary.totalScore.toFixed(1)}/100</span>
             </button>
             <button
               type="button"
               onClick={() => handleNavigate('alarms')}
-              className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="hover:text-red-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              ১ মাসের অ্যালার্ম: <span className="font-mono font-semibold text-red-600 tabular-nums">{urgentAlarmCount}</span>
+              ১ মাসের অ্যালার্ম: <span className="font-mono font-bold text-red-600 tabular-nums">{urgentAlarmCount}</span>
             </button>
             <button
               type="button"
               onClick={() => setServerModalOpen(true)}
-              className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="hover:text-indigo-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               LAN Server IP
             </button>
@@ -423,7 +443,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => handleNavigate('reports', 'daily-ops-report')}
-              className="px-4 py-2 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 rounded-xl shadow-sm transition-all whitespace-nowrap shrink-0 cursor-pointer active:scale-95"
             >
               রিপোর্ট প্রস্তুত করুন
             </button>
@@ -468,7 +488,9 @@ export default function App() {
               {activeTab === 'checklists' && (
                 <ChecklistView
                   db={effectiveDb}
+                  onAddChecklistItem={handleAddChecklistItem}
                   onUpdateChecklistItem={handleUpdateChecklistItem}
+                  onDeleteChecklistItem={handleDeleteChecklistItem}
                   onResetChecklist={handleResetChecklist}
                   onNavigateToReports={(tplId) => handleNavigate('reports', tplId)}
                   onNotifyToast={showToast}

@@ -6,24 +6,52 @@ import {
   Edit2,
   FileText,
   Filter,
+  Plus,
   Printer,
   RefreshCw,
   Search,
   Sparkles,
+  Trash2,
+  X,
 } from 'lucide-react';
 import type { AppDatabase, ChecklistItem, ChecklistStatus } from '../types.ts';
 
 interface ChecklistViewProps {
   db: AppDatabase;
+  onAddChecklistItem: (item: Partial<ChecklistItem>) => Promise<void>;
   onUpdateChecklistItem: (id: string, patch: Partial<ChecklistItem>) => Promise<void>;
+  onDeleteChecklistItem: (id: string) => Promise<void>;
   onResetChecklist: (cadence: 'daily' | 'monthly') => Promise<void>;
   onNavigateToReports: (templateId?: string) => void;
   onNotifyToast: (msg: string) => void;
 }
 
+const DAILY_CATEGORIES = [
+  { num: 1, name: 'Administration / HR / Customer Service' },
+  { num: 2, name: 'Network Operations / NOC' },
+  { num: 3, name: 'Technology / Transmission / Field Support' },
+  { num: 4, name: 'Marketing / Sales / Customer Retention' },
+  { num: 5, name: 'Vendor / IIG / NTTN Coordination' },
+  { num: 6, name: 'Reseller / MAC Partner Operations' },
+  { num: 7, name: 'Compliance / Agreement / Renewal' },
+];
+
+const MONTHLY_CATEGORIES = [
+  { num: 1, name: 'Administration / HR / Customer Service' },
+  { num: 2, name: 'Network Operations / NOC' },
+  { num: 3, name: 'Technology / Transmission / Field Support' },
+  { num: 4, name: 'Marketing / Sales / Customer Retention' },
+  { num: 5, name: 'Vendor / IIG / NTTN Coordination' },
+  { num: 6, name: 'Reseller / MAC Partner Operations' },
+  { num: 7, name: 'Compliance / Agreement / Renewal' },
+  { num: 8, name: 'COO Management Reporting' },
+];
+
 export const ChecklistView: React.FC<ChecklistViewProps> = ({
   db,
+  onAddChecklistItem,
   onUpdateChecklistItem,
+  onDeleteChecklistItem,
   onResetChecklist,
   onNavigateToReports,
   onNotifyToast,
@@ -35,21 +63,33 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [remarksDraft, setRemarksDraft] = useState('');
 
+  // Add Task Modal / Inline Drawer state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newCategoryNum, setNewCategoryNum] = useState<number>(1);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [newRemarks, setNewRemarks] = useState('');
+
   // Items for the active cadence
   const items = useMemo(() => {
     return (db.checklists || []).filter((item) => item.cadence === activeCadence);
   }, [db.checklists, activeCadence]);
 
-  // Unique categories for active cadence
+  // Available categories list
+  const availableCategories = useMemo(() => {
+    return activeCadence === 'daily' ? DAILY_CATEGORIES : MONTHLY_CATEGORIES;
+  }, [activeCadence]);
+
+  // Dynamic categories based on items + defaults
   const categories = useMemo(() => {
     const map = new Map<number, string>();
+    availableCategories.forEach((c) => map.set(c.num, c.name));
     items.forEach((item) => {
       if (!map.has(item.categoryNumber)) {
         map.set(item.categoryNumber, item.categoryName);
       }
     });
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
-  }, [items]);
+  }, [items, availableCategories]);
 
   // Filtered items
   const filteredItems = useMemo(() => {
@@ -90,36 +130,68 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     onNotifyToast('মন্তব্য/কারণ সফলভাবে সংরক্ষিত হয়েছে।');
   };
 
+  const handleCreateNewTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+
+    const matchedCat = availableCategories.find((c) => c.num === newCategoryNum);
+    const categoryName = matchedCat ? matchedCat.name : `Category ${newCategoryNum}`;
+
+    await onAddChecklistItem({
+      cadence: activeCadence,
+      categoryNumber: newCategoryNum,
+      categoryName,
+      taskText: newTaskText.trim(),
+      status: 'Pending',
+      remarks: newRemarks.trim(),
+    });
+
+    setNewTaskText('');
+    setNewRemarks('');
+    setShowAddModal(false);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Top Banner and Summary Card */}
-      <section className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs print:border-none print:shadow-none print:p-0">
+      {/* Top Banner and Summary Card with Royal Glossy Styling */}
+      <section className="bg-white/95 backdrop-blur-md border border-slate-200/80 rounded-2xl p-6 shadow-sm print:border-none print:shadow-none print:p-0">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-5 border-b border-slate-200">
           <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-semibold mb-2 print:hidden">
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>SPEED NET Official COO Operations Protocol</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-blue-900 to-indigo-900 text-amber-300 rounded-full text-xs font-semibold mb-2 shadow-xs print:hidden">
+              <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+              <span>SPEED NET Official COO Operational Hub</span>
             </div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               {activeCadence === 'daily'
                 ? 'SPEED NET — DAILY COO MONITORING CHECKLIST'
                 : 'SPEED NET — MONTHLY COO MONITORING CHECKLIST'}
             </h1>
             <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
-              প্রতিদিনের ও মাসিক অপারেশনাল মনিটরিং চেকলিস্ট। যে কাজটি হয়ে যাবে টিক দিলে <strong>Complete</strong> হবে, আর যেটি হবে না সেটি <strong>Pending</strong> থাকবে এবং কেন হলো না তার ব্যাখ্যা বা <strong>Remarks</strong> লিখে সেভ করা যাবে।
+              প্রতিদিনের ও মাসিক অপারেশনাল মনিটরিং চেকলিস্ট। যে কাজটি হয়ে যাবে টিক দিলে <strong>Complete</strong> হবে, আর যেটি হবে না সেটি <strong>Pending</strong> থাকবে এবং কেন হলো না তার ব্যাখ্যা বা <strong>Remarks</strong> লিখে সেভ করা যাবে। যেকোনো ক্যাটাগরিতে নতুন দায়িত্ব যোগ করতে পারবেন।
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 print:hidden shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 print:hidden shrink-0">
+            {/* New Responsibility Add Button */}
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 rounded-xl shadow-sm transition-all whitespace-nowrap cursor-pointer active:scale-95"
+            >
+              <Plus className="h-4 w-4" />
+              <span>+ নতুন দায়িত্ব যুক্ত করুন</span>
+            </button>
+
             <button
               type="button"
               onClick={() => onResetChecklist(activeCadence)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
               title="নতুন দিনের বা মাসের জন্য চেকলিস্ট রিসেট করুন"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               <span>{activeCadence === 'daily' ? 'নতুন দিন রিসেট' : 'নতুন মাস রিসেট'}</span>
             </button>
+
             <button
               type="button"
               onClick={() =>
@@ -129,36 +201,37 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                     : 'monthly-consolidated-coo-md-chairman'
                 )
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-blue-800 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
             >
               <FileText className="h-3.5 w-3.5" />
-              <span>{activeCadence === 'daily' ? 'ডেইলি রিপোর্ট ফরম্যাটে পাঠান' : 'মাসিক রিপোর্ট ফরম্যাট (MD/Chairman)'}</span>
+              <span>{activeCadence === 'daily' ? 'ডেইলি রিপোর্ট' : 'MD/Chairman রিপোর্ট'}</span>
             </button>
+
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-slate-900 to-slate-800 hover:from-black hover:to-slate-900 rounded-xl shadow-sm transition-all whitespace-nowrap cursor-pointer active:scale-95"
             >
-              <Printer className="h-3.5 w-3.5" />
-              <span>চেকলিস্ট এক ক্লিকে প্রিন্ট</span>
+              <Printer className="h-4 w-4 text-amber-400" />
+              <span>A4 পেজে সরাসরি প্রিন্ট</span>
             </button>
           </div>
         </div>
 
-        {/* Cadence Tabs and Stats Metric Grid */}
+        {/* Cadence Tabs and Stats Metric Grid with Royal Accents */}
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4">
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+          <div className="p-3.5 bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200/80 rounded-xl shadow-2xs">
             <div className="text-xs text-slate-500 font-medium">মনিটরিং পর্যায়</div>
-            <div className="mt-1 flex items-center gap-1 p-1 bg-slate-200/70 rounded-md print:hidden">
+            <div className="mt-1 flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg print:hidden">
               <button
                 type="button"
                 onClick={() => {
                   setActiveCadence('daily');
                   setCategoryFilter('all');
                 }}
-                className={`flex-1 py-1 text-xs font-semibold rounded cursor-pointer transition-colors ${
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-all ${
                   activeCadence === 'daily'
-                    ? 'bg-white text-slate-900 shadow-xs'
+                    ? 'bg-gradient-to-r from-blue-900 to-indigo-900 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -170,9 +243,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                   setActiveCadence('monthly');
                   setCategoryFilter('all');
                 }}
-                className={`flex-1 py-1 text-xs font-semibold rounded cursor-pointer transition-colors ${
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-all ${
                   activeCadence === 'monthly'
-                    ? 'bg-white text-slate-900 shadow-xs'
+                    ? 'bg-gradient-to-r from-blue-900 to-indigo-900 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -184,8 +257,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             </div>
           </div>
 
-          <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-emerald-800 font-medium">
+          <div className="p-3.5 bg-gradient-to-br from-emerald-50/80 to-teal-50/40 border border-emerald-200/80 rounded-xl shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-emerald-900 font-semibold">
               <span>সম্পন্ন কাজ (Completed)</span>
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             </div>
@@ -197,8 +270,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             </div>
           </div>
 
-          <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-lg flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-amber-900 font-medium">
+          <div className="p-3.5 bg-gradient-to-br from-amber-50/80 to-orange-50/40 border border-amber-200/80 rounded-xl shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-amber-950 font-semibold">
               <span>পেন্ডিং ও ব্যাখ্যা আবশ্যক</span>
               <Clock className="h-4 w-4 text-amber-600" />
             </div>
@@ -210,15 +283,15 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             </div>
           </div>
 
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-col justify-between">
-            <div className="text-xs text-slate-500 font-medium">অগ্রগতি হার (Progress)</div>
+          <div className="p-3.5 bg-gradient-to-br from-blue-50/80 to-indigo-50/40 border border-blue-200/80 rounded-xl shadow-2xs flex flex-col justify-between">
+            <div className="text-xs text-blue-950 font-semibold">অগ্রগতি হার (Progress)</div>
             <div className="mt-2 flex items-center justify-between">
-              <span className="text-2xl font-bold font-mono text-slate-900 tabular-nums">
+              <span className="text-2xl font-bold font-mono text-blue-900 tabular-nums">
                 {completionPercentage}%
               </span>
-              <div className="w-20 bg-slate-200 rounded-full h-2 overflow-hidden">
+              <div className="w-24 bg-slate-200 rounded-full h-2.5 overflow-hidden">
                 <div
-                  className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-gradient-to-r from-blue-600 to-emerald-500 h-2.5 rounded-full transition-all duration-300"
                   style={{ width: `${completionPercentage}%` }}
                 />
               </div>
@@ -236,20 +309,20 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="চেকলিস্ট বা রিমার্কস অনুসন্ধান করুন..."
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
               />
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs">
+            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs">
               <Filter className="h-3.5 w-3.5 text-slate-500 ml-1.5" />
               {(['all', 'Pending', 'Completed'] as const).map((st) => (
                 <button
                   key={st}
                   type="button"
                   onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 font-medium rounded cursor-pointer transition-colors ${
+                  className={`px-3 py-1 font-medium rounded-lg cursor-pointer transition-colors ${
                     statusFilter === st
                       ? 'bg-white text-slate-900 shadow-xs font-semibold'
                       : 'text-slate-600 hover:text-slate-900'
@@ -266,7 +339,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               onChange={(e) =>
                 setCategoryFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
               }
-              className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
+              className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer shadow-2xs"
             >
               <option value="all">সকল ক্যাটাগরি (১–{categories.length})</option>
               {categories.map(([num, name]) => (
@@ -278,6 +351,96 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           </div>
         </div>
       </section>
+
+      {/* Modal / Drawer to Add New Responsibility in Any Category */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-blue-100 text-blue-800 rounded-lg">
+                  <Plus className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    নতুন দায়িত্ব যুক্ত করুন ({activeCadence === 'daily' ? 'Daily' : 'Monthly'})
+                  </h3>
+                  <p className="text-xs text-slate-500">যে কোনো ক্যাটাগরি নির্বাচন করে চেকলিস্টে দায়িত্ব যোগ করুন</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewTask} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  ক্যাটাগরি নির্বাচন করুন *
+                </label>
+                <select
+                  value={newCategoryNum}
+                  onChange={(e) => setNewCategoryNum(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                >
+                  {availableCategories.map((c) => (
+                    <option key={c.num} value={c.num}>
+                      {c.num}. {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  দায়িত্ব / চেকলিস্টের বিবরণ *
+                </label>
+                <textarea
+                  required
+                  rows={2}
+                  value={newTaskText}
+                  onChange={(e) => setNewTaskText(e.target.value)}
+                  placeholder="যেমন: Daulatpur Branch Battery ও UPS ভোল্টেজ অডিট যাচাই..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  প্রাথমিক মন্তব্য / করণীয় নোট (ঐচ্ছিক)
+                </label>
+                <input
+                  type="text"
+                  value={newRemarks}
+                  onChange={(e) => setNewRemarks(e.target.value)}
+                  placeholder="ফলোআপের ব্যক্তি বা সম্ভাব্য ডেডলাইন..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-sm cursor-pointer"
+                >
+                  চেকলিস্টে সেভ করুন
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Grouped Checklist Display (7 Categories for Daily, 8 for Monthly) */}
       <div className="space-y-6">
@@ -293,25 +456,40 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             return (
               <section
                 key={categoryNum}
-                className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs print:border print:border-slate-300 print:rounded-none print:shadow-none break-inside-avoid"
+                className="bg-white/95 border border-slate-200/90 rounded-2xl overflow-hidden shadow-sm print:border print:border-slate-300 print:rounded-none print:shadow-none break-inside-avoid print-avoid-break"
               >
-                {/* Category Header */}
-                <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-4">
+                {/* Category Header with Royal Indigo Gradient */}
+                <div className="px-5 py-3.5 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white flex items-center justify-between gap-4">
                   <div className="flex items-center gap-2.5">
-                    <span className="flex items-center justify-center h-6 w-6 rounded-full bg-blue-600 text-xs font-bold text-white font-mono">
+                    <span className="flex items-center justify-center h-6 w-6 rounded-full bg-blue-600 text-xs font-bold text-white font-mono shadow-xs">
                       {categoryNum}
                     </span>
-                    <h2 className="text-sm font-semibold tracking-tight">
+                    <h2 className="text-sm font-bold tracking-tight text-slate-50">
                       {categoryNum}. {categoryName}
                     </h2>
                   </div>
-                  <div className="font-mono text-xs text-slate-300 tabular-nums">
-                    {secCompleted} / {secTotal} সম্পন্ন
+                  <div className="flex items-center gap-3">
+                    <div className="font-mono text-xs text-amber-300 font-semibold tabular-nums">
+                      {secCompleted} / {secTotal} সম্পন্ন
+                    </div>
+                    {/* Add into this specific category shortcut */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCategoryNum(categoryNum);
+                        setShowAddModal(true);
+                      }}
+                      className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs text-white bg-white/10 hover:bg-white/20 rounded-md transition-colors cursor-pointer print:hidden"
+                      title="এই ক্যাটাগরিতে নতুন কাজ যোগ করুন"
+                    >
+                      <Plus className="h-3 w-3" />
+                      <span>+যোগ</span>
+                    </button>
                   </div>
                 </div>
 
                 {/* Items List */}
-                <div className="divide-y divide-slate-200">
+                <div className="divide-y divide-slate-200/80">
                   {sectionItems.map((item) => {
                     const isCompleted = item.status === 'Completed';
                     const isEditing = editingItemId === item.id;
@@ -321,8 +499,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                         key={item.id}
                         className={`p-4 transition-colors ${
                           isCompleted
-                            ? 'bg-emerald-50/20 hover:bg-emerald-50/30'
-                            : 'bg-amber-50/20 hover:bg-amber-50/30'
+                            ? 'bg-emerald-50/25 hover:bg-emerald-50/35'
+                            : 'bg-amber-50/25 hover:bg-amber-50/35'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -331,7 +509,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleToggleStatus(item)}
-                              className={`mt-0.5 h-5 w-5 rounded border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                              className={`mt-0.5 h-5 w-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
                                 isCompleted
                                   ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
                                   : 'bg-white border-slate-300 hover:border-blue-500 text-transparent'
@@ -345,7 +523,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                               <div
                                 onClick={() => handleToggleStatus(item)}
                                 className={`text-sm font-medium cursor-pointer select-none leading-relaxed ${
-                                  isCompleted ? 'line-through text-slate-500' : 'text-slate-900 font-semibold'
+                                  isCompleted ? 'line-through text-slate-400' : 'text-slate-900 font-semibold'
                                 }`}
                               >
                                 {item.taskText}
@@ -353,7 +531,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
                               {/* Remarks / Explanation Section */}
                               {isEditing ? (
-                                <div className="mt-2 space-y-2 max-w-2xl bg-white p-3 border border-blue-400 rounded-lg shadow-xs">
+                                <div className="mt-2 space-y-2 max-w-2xl bg-white p-3 border border-blue-400 rounded-xl shadow-xs print:hidden">
                                   <label className="block text-xs font-semibold text-slate-700">
                                     {isCompleted
                                       ? 'সম্পন্ন কাজের রেফারেন্স বা নোট লিখুন:'
@@ -364,7 +542,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                                     value={remarksDraft}
                                     onChange={(e) => setRemarksDraft(e.target.value)}
                                     placeholder="কারণ বা বিস্তারিত নোট লিখুন..."
-                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-600"
+                                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600"
                                   />
                                   <div className="flex items-center justify-end gap-2">
                                     <button
@@ -377,7 +555,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => handleSaveRemarks(item.id)}
-                                      className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 cursor-pointer"
+                                      className="px-3 py-1 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 cursor-pointer"
                                     >
                                       সেভ করুন
                                     </button>
@@ -394,22 +572,32 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                                         item.remarks
                                           ? isCompleted
                                             ? 'text-slate-700'
-                                            : 'text-amber-900 font-medium'
+                                            : 'text-amber-950 font-medium'
                                           : 'italic text-slate-400'
                                       }
                                     >
                                       {item.remarks || 'কোনো কারণ বা মন্তব্য লেখা হয়নি (যুক্ত করতে এডিট বাটনে ক্লিক করুন)'}
                                     </span>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleStartEdit(item)}
-                                    className="inline-flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900 font-medium cursor-pointer shrink-0 print:hidden"
-                                    title="মন্তব্য / কারণ লিখুন"
-                                  >
-                                    <Edit2 className="h-3 w-3" />
-                                    <span>{item.remarks ? 'এডিট' : '+মন্তব্য লিখুন'}</span>
-                                  </button>
+                                  <div className="flex items-center gap-2 shrink-0 print:hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartEdit(item)}
+                                      className="inline-flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
+                                      title="মন্তব্য / কারণ লিখুন"
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                      <span>{item.remarks ? 'এডিট' : '+মন্তব্য'}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => onDeleteChecklistItem(item.id)}
+                                      className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                      title="মুছে ফেলুন"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -418,9 +606,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                           {/* Status Badge */}
                           <div className="shrink-0 pt-0.5">
                             <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold tabular-nums ${
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tabular-nums ${
                                 isCompleted
-                                  ? 'bg-emerald-100 text-emerald-800'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                                   : 'bg-amber-100 text-amber-900 border border-amber-300'
                               }`}
                             >
@@ -447,8 +635,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           })}
       </div>
 
-      {/* Print Signature Footer */}
-      <div className="hidden print:block pt-12">
+      {/* A4 Print Signature Footer */}
+      <div className="hidden print:block pt-10 break-inside-avoid">
         <div className="grid grid-cols-2 gap-12 text-xs text-slate-800">
           <div className="border-t border-slate-900 pt-2 font-medium">
             Prepared & Monitored By: {db.settings.employeeName} ({db.settings.designation})

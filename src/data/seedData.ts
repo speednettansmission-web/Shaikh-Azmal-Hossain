@@ -1145,7 +1145,7 @@ export function createInitialDb(): AppDatabase {
       designation: 'Chief Operating Officer (COO)',
       department: 'Administration & Operations',
       companyName: 'SPEED NET (Khulna)',
-      branchOfficialCcEmail: 'info@speednetkhulna.com',
+      branchOfficialCcEmail: 'dipu@speednetkhulna.com',
       evaluationMonth: currentMonthLabel(),
       evaluatedBy: 'Managing Director / Chairman',
       verificationNotes: 'All KPI items verified against official work orders, portal logs, and compliance files.',

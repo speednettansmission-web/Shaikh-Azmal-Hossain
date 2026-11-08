@@ -85,6 +85,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const [periodLabel, setPeriodLabel] = useState<string>(() =>
     new Date().toISOString().slice(0, 10)
   );
+  const [recipient, setRecipient] = useState<string>('Managing Director (MD)');
   const [ccConfirmed, setCcConfirmed] = useState<boolean>(true);
   const [summaryText, setSummaryText] = useState<string>('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -113,6 +114,8 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     } else {
       setPeriodLabel(`Annual ${new Date().getFullYear()}`);
     }
+    // Set recipient from template by default
+    setRecipient(activeTemplate.submittedTo || 'Managing Director (MD)');
     setViewingSavedReport(null);
   }, [activeTemplate, db.settings.evaluationMonth]);
 
@@ -216,7 +219,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
 
   const buildPlainTextReport = (rep?: SubmittedReport): string => {
     const title = rep ? rep.templateTitle : activeTemplate.title;
-    const to = rep ? rep.submittedTo : activeTemplate.submittedTo;
+    const to = rep ? rep.submittedTo : recipient;
     const period = rep ? rep.periodLabel : periodLabel;
     const summary = rep ? rep.summaryText : summaryText;
     const fields = rep ? rep.structuredFields : fieldValues;
@@ -275,7 +278,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
       templateId: activeTemplate.id,
       templateTitle: activeTemplate.title,
       cadence: activeTemplate.cadence,
-      submittedTo: activeTemplate.submittedTo,
+      submittedTo: recipient,
       periodLabel,
       preparedBy: `${db.settings.employeeName} (${db.settings.designation})`,
       ccSpeedNetKhulnaConfirmed: ccConfirmed,
@@ -312,7 +315,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     templateId: activeTemplate.id,
     templateTitle: activeTemplate.title,
     cadence: activeTemplate.cadence,
-    submittedTo: activeTemplate.submittedTo,
+    submittedTo: recipient,
     periodLabel,
     createdAt: new Date().toISOString(),
     preparedBy: `${db.settings.employeeName} (${db.settings.designation})`,
@@ -442,15 +445,21 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    কাকে জমা দেবেন (Recipient)
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    কাকে জমা দেবেন (Recipient Dropdown) *
                   </label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={activeTemplate.submittedTo}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
-                  />
+                  <select
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs text-slate-900 cursor-pointer"
+                  >
+                    <option value="Managing Director (MD)">Managing Director (MD)</option>
+                    <option value="Chairman">Chairman</option>
+                    <option value="Managing Director / Chairman">MD & Chairman (উভয়কে)</option>
+                    <option value="CFO / Accounts Department">CFO / Accounts Department</option>
+                    <option value="Management">Management Committee</option>
+                    <option value="COO Self-Record / Internal Audit">COO Self-Record / Audit</option>
+                  </select>
                 </div>
               </div>
 
@@ -629,17 +638,31 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         </section>
 
         {/* Live Official Letterhead Preview (Right 6 Cols, Full Width on Print) */}
-        <section className="xl:col-span-6 bg-white border border-slate-200 rounded-xl p-8 print-sheet">
-          <div className="border-b-2 border-slate-900 pb-4 flex items-start justify-between gap-4">
+        <section className="xl:col-span-6 bg-white border border-slate-200/90 rounded-2xl p-7 shadow-sm print-sheet">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 no-print">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              অফিসিয়াল লেটারহেড প্রিভিউ (A4 Format)
+            </span>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-black rounded-xl shadow-xs transition-all cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5 text-amber-400" />
+              <span>এই রিপোর্টটি সরাসরি প্রিন্ট করুন</span>
+            </button>
+          </div>
+
+          <div className="border-b-2 border-slate-950 pb-4 flex items-start justify-between gap-4">
             <div>
-              <div className="text-lg font-bold tracking-tight text-slate-900">
+              <div className="text-xl font-extrabold tracking-tight text-slate-950">
                 {db.settings.companyName}
               </div>
-              <div className="text-xs text-slate-600">
+              <div className="text-xs text-slate-600 font-medium">
                 Office of the Chief Operating Officer (Administration & Operations)
               </div>
             </div>
-            <div className="text-right font-mono text-xs text-slate-600 tabular-nums">
+            <div className="text-right font-mono text-xs text-slate-700 tabular-nums">
               <div>Period: {previewReport.periodLabel}</div>
               <div>Date: {previewReport.createdAt.slice(0, 10)}</div>
             </div>

@@ -10,7 +10,7 @@
   body {
     font-family: var(--font-sans);
     color: #0f172a;
-    background-color: #f8fafc;
+    background-color: #f1f5f9;
   }
 
   h1, h2, h3, h4 {
@@ -22,13 +22,90 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Royal Glossy Styling Utilities */
+.royal-glass {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.04), 0 8px 10px -6px rgba(15, 23, 42, 0.02);
+}
+
+.royal-glass-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.royal-glass-card:hover {
+  box-shadow: 0 12px 30px -4px rgba(30, 58, 138, 0.08), 0 4px 10px -2px rgba(30, 58, 138, 0.04);
+}
+
+.royal-gradient-header {
+  background: linear-gradient(135deg, #0b1329 0%, #172554 45%, #1e3a8a 100%);
+  color: #ffffff;
+}
+
+.royal-badge {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.royal-badge-gold {
+  background: linear-gradient(135deg, #b45309 0%, #d97706 50%, #f59e0b 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.25);
+}
+
+.royal-badge-emerald {
+  background: linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+}
+
+.royal-gold-accent {
+  border-left: 3px solid #d97706;
+}
+
+/* Custom Smooth Scrollbar for card lists */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+/* Precision A4 Print Stylesheet */
+@page {
+  size: A4 portrait;
+  margin: 12mm 14mm 14mm 14mm;
+}
+
 @media print {
-  body {
+  html, body {
+    background: #ffffff !important;
     background-color: #ffffff !important;
-    color: #000000 !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.35 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
   }
 
-  .no-print {
+  .no-print, nav, aside, header, button, select, input[type="text"], input[type="search"] {
     display: none !important;
   }
 
@@ -43,5 +120,22 @@
     margin: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+    page-break-inside: avoid;
+  }
+
+  /* Keep table headers and avoid orphan splits */
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr, .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Force background colors on print if supported */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }

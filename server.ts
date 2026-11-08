@@ -36,6 +36,11 @@ function ensureDb(): AppDatabase {
       parsed.checklists = initial.checklists;
       saveDb(parsed);
     }
+    // Update official CC email if it was previously info@speednetkhulna.com
+    if (parsed.settings && (parsed.settings.branchOfficialCcEmail === 'info@speednetkhulna.com' || !parsed.settings.branchOfficialCcEmail.includes('dipu'))) {
+      parsed.settings.branchOfficialCcEmail = 'dipu@speednetkhulna.com';
+      saveDb(parsed);
+    }
     return parsed;
   } catch {
     const initial = createInitialDb();
@@ -127,6 +132,23 @@ async function startServer() {
   });
 
   // Checklist APIs
+  app.post('/api/checklist', (req, res) => {
+    const db = ensureDb();
+    const body = req.body;
+    const newItem = {
+      id: `chk-${body.cadence === 'monthly' ? 'm' : 'd'}-${body.categoryNumber || 1}-${Date.now()}`,
+      cadence: body.cadence || 'daily',
+      categoryNumber: Number(body.categoryNumber) || 1,
+      categoryName: String(body.categoryName || 'General Operations').trim(),
+      taskText: String(body.taskText || '').trim(),
+      status: body.status || 'Pending',
+      remarks: String(body.remarks || '').trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.checklists.push(newItem);
+    res.json(saveDb(db));
+  });
+
   app.patch('/api/checklist/:id', (req, res) => {
     const db = ensureDb();
     const idx = db.checklists.findIndex((item) => item.id === req.params.id);
@@ -139,6 +161,12 @@ async function startServer() {
       ...req.body,
       updatedAt: new Date().toISOString(),
     };
+    res.json(saveDb(db));
+  });
+
+  app.delete('/api/checklist/:id', (req, res) => {
+    const db = ensureDb();
+    db.checklists = db.checklists.filter((item) => item.id !== req.params.id);
     res.json(saveDb(db));
   });
 
