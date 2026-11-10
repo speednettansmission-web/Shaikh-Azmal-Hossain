@@ -1,11 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
+  Award,
+  BarChart3,
   Check,
+  CheckCircle2,
+  Clock,
+  Compass,
   Copy,
   FileCheck2,
+  FileSpreadsheet,
+  MessageSquareQuote,
+  PieChart as PieIcon,
   Plus,
   Printer,
   Sparkles,
+  Target,
   Trash2,
 } from 'lucide-react';
 import type {
@@ -29,6 +39,27 @@ interface ReportsCenterViewProps {
   onDeleteReport: (id: string) => Promise<void>;
   onNotifyToast: (msg: string) => void;
 }
+
+const DAILY_CATEGORIES = [
+  { num: 1, name: 'Administration / HR / Customer Service' },
+  { num: 2, name: 'Network Operations / NOC' },
+  { num: 3, name: 'Technology / Transmission / Field Support' },
+  { num: 4, name: 'Marketing / Sales / Customer Retention' },
+  { num: 5, name: 'Vendor / IIG / NTTN Coordination' },
+  { num: 6, name: 'Reseller / MAC Partner Operations' },
+  { num: 7, name: 'Compliance / Agreement / Renewal' },
+];
+
+const MONTHLY_CATEGORIES = [
+  { num: 1, name: 'Administration / HR / Customer Service' },
+  { num: 2, name: 'Network Operations / NOC' },
+  { num: 3, name: 'Technology / Transmission / Field Support' },
+  { num: 4, name: 'Marketing / Sales / Customer Retention' },
+  { num: 5, name: 'Vendor / IIG / NTTN Coordination' },
+  { num: 6, name: 'Reseller / MAC Partner Operations' },
+  { num: 7, name: 'Compliance / Agreement / Renewal' },
+  { num: 8, name: 'COO Management Reporting' },
+];
 
 const DEFAULT_CAPACITY_ROWS: CapacityRow[] = [
   {
@@ -88,6 +119,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const [recipient, setRecipient] = useState<string>('Managing Director (MD)');
   const [ccConfirmed, setCcConfirmed] = useState<boolean>(true);
   const [summaryText, setSummaryText] = useState<string>('');
+  const [critiqueCommentary, setCritiqueCommentary] = useState<string>('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [capacityRows, setCapacityRows] = useState<CapacityRow[]>(DEFAULT_CAPACITY_ROWS);
   const [copiedFlag, setCopiedFlag] = useState(false);
@@ -125,32 +157,158 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     );
   }, [cadenceFilter]);
 
+  // Determine whether current preview report is monthly or daily
+  const previewReport: SubmittedReport = viewingSavedReport || {
+    id: 'draft',
+    templateId: activeTemplate.id,
+    templateTitle: activeTemplate.title,
+    cadence: activeTemplate.cadence,
+    submittedTo: recipient,
+    periodLabel,
+    createdAt: new Date().toISOString(),
+    preparedBy: `${db.settings.employeeName} (${db.settings.designation})`,
+    ccSpeedNetKhulnaConfirmed: ccConfirmed,
+    summaryText,
+    structuredFields: fieldValues,
+    capacityRows: activeTemplate.hasCapacityTable ? capacityRows : undefined,
+    critiqueCommentary,
+  };
+
+  const isMonthlyReport =
+    previewReport.cadence === 'monthly' || previewReport.templateId.includes('monthly');
+  const checklistCadence: 'daily' | 'monthly' = isMonthlyReport ? 'monthly' : 'daily';
+
+  const relevantChecklists = useMemo(() => {
+    return (db.checklists || []).filter((c) => c.cadence === checklistCadence);
+  }, [db.checklists, checklistCadence]);
+
+  const totalChecklists = relevantChecklists.length || (isMonthlyReport ? 26 : 26);
+  const completedChecklists = relevantChecklists.filter((c) => c.status === 'Completed').length;
+  const pendingChecklists = relevantChecklists.filter((c) => c.status === 'Pending').length;
+  const checklistPercent = totalChecklists > 0 ? Math.round((completedChecklists / totalChecklists) * 100) : 0;
+  const pendingPercent = 100 - checklistPercent;
+
+  // Category statistics breakdown
+  const categoryStats = useMemo(() => {
+    const catList = isMonthlyReport ? MONTHLY_CATEGORIES : DAILY_CATEGORIES;
+    return catList.map((cat) => {
+      const items = relevantChecklists.filter((c) => c.categoryNumber === cat.num);
+      const completed = items.filter((c) => c.status === 'Completed').length;
+      const total = items.length;
+      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+      return {
+        num: cat.num,
+        name: cat.name,
+        total,
+        completed,
+        pending: total - completed,
+        percent,
+      };
+    });
+  }, [relevantChecklists, isMonthlyReport]);
+
+  const urgentRenewals = useMemo(() => {
+    return evaluatedRenewals.filter((r) => r.state === 'overdue' || r.state === 'alarm-1m');
+  }, [evaluatedRenewals]);
+
+  const criticalTasks = useMemo(() => {
+    return db.tasks.filter((t) => t.status !== 'Done' && t.kpiWeight >= 10);
+  }, [db.tasks]);
+
+  // Intelligent auto-generation of Operational Critique, Commentary & Recommendations
+  const buildSmartCritique = () => {
+    const strengths: string[] = [];
+    const gapsAndCritique: string[] = [];
+    const recommendations: string[] = [];
+
+    // Analyze completed checklist
+    if (checklistPercent >= 80) {
+      strengths.push(
+        `• রুটিন অপারেশনাল অগ্রগতি সন্তোষজনক: মোট দায়িত্বের ${checklistPercent}% (${completedChecklists}/${totalChecklists}) ইতিমধ্যে সফলভাবে সম্পন্ন হয়েছে।`
+      );
+    } else {
+      gapsAndCritique.push(
+        `• সামগ্রিক চেকলিস্ট বাস্তবায়ন ধীরগতির: বর্তমান অগ্রগতি মাত্র ${checklistPercent}% (${pendingChecklists}টি কাজ এখনো পেন্ডিং রয়েছে)।`
+      );
+    }
+
+    // Category-specific bottleneck critique
+    const laggingCats = categoryStats.filter((c) => c.percent < 100);
+    if (laggingCats.length > 0) {
+      const catNames = laggingCats.map((c) => `${c.name} (${c.percent}%)`).join(', ');
+      gapsAndCritique.push(
+        `• বিভাগভিত্তিক দুর্বলতা ও মনিটরিং ঘাটতি: [${catNames}] বিভাগে একাধিক কাজ নির্ধারিত সময়ে সম্পন্ন হয়নি। ফিল্ড ও অপারেশনাল সমন্বয়ের ঘাটতি পরিলক্ষিত হয়েছে।`
+      );
+      recommendations.push(
+        `• আগামী ২৪-৪৮ ঘণ্টার মধ্যে সংশ্লিষ্ট ডিপার্টমেন্টাল হেড ও সুপারভাইজারদের জবাবদিহিতা নিশ্চিত করে পেন্ডিং টাস্ক ক্লোজ করার নির্দেশ দেওয়া হোক।`
+      );
+    } else {
+      strengths.push(
+        `• শতভাগ বিভাগীয় কমপ্লায়েন্স: সকল ক্যাটাগরির রুটিন মনিটরিং আইটেম শতভাগ সম্পন্ন ও নথিবদ্ধ করা হয়েছে।`
+      );
+    }
+
+    // KPI Score critique
+    if (kpiSummary.totalScore >= 85) {
+      strengths.push(
+        `• KPI স্কোর উচ্চ অবস্থানে: চলতি মাসের অর্জিত স্কোর ${kpiSummary.totalScore.toFixed(1)}/১০০, যা কোম্পানির অপারেশনাল লক্ষ্যমাত্রার সাথে সঙ্গতিপূর্ণ।`
+      );
+    } else {
+      gapsAndCritique.push(
+        `• KPI স্কোর লক্ষ্যমাত্রার নিচে: অর্জিত স্কোর ${kpiSummary.totalScore.toFixed(1)}/১০০। বিশেষ করে উচ্চ ওয়েটের (IIG/NTTN ও ভেন্ডর সংক্রান্ত) পেন্ডিং কাজের কারণে স্কোরের ক্ষতি হচ্ছে।`
+      );
+      recommendations.push(
+        `• বেশি ওয়েটের (Weight 15 ও 10) কাজগুলোতে অগ্রাধিকার প্রদান করে দ্রুত KPI স্কোর ৮৫+ এ উন্নীত করার ব্যবস্থা নেওয়া হবে।`
+      );
+    }
+
+    // 1-Month advance expiry alarm critique
+    if (urgentRenewals.length > 0) {
+      const alarmTitles = urgentRenewals.map((r) => r.item.title).slice(0, 3).join(', ');
+      gapsAndCritique.push(
+        `• লাইসেন্স, চুক্তি ও নবায়ন ঝুঁকি: আগামী ৩০ দিনের মধ্যে ${urgentRenewals.length}টি চুক্তি/লাইসেন্স মেয়াদোত্তীর্ণ হতে যাচ্ছে (${alarmTitles})। সময়মতো নবায়ন না হলে প্রশাসনিক ও আর্থিক জরিমানার ঝুঁকি তৈরি হতে পারে।`
+      );
+      recommendations.push(
+        `• জরুরি ভিত্তিতে BTRC, POP ভাড়ার চুক্তি ও ফায়ার সেফটি নবায়নের ফাইল প্রসেসিং এবং সংশ্লিষ্ট বাজেট ছাড়ের জন্য মাননীয় ${recipient} মহোদয়ের সদয় পূর্বানুমোদন প্রার্থনা করছি।`
+      );
+    } else {
+      strengths.push(
+        `• শূন্য কমপ্লায়েন্স ঝুঁকি: আগামী ৩০ দিনের মধ্যে কোনো জরুরি লাইসেন্স বা চুক্তি মেয়াদোত্তীর্ণ হওয়ার ঝুঁকি নেই।`
+      );
+    }
+
+    return [
+      `[১. অপারেশনাল সাফল্য ও স্থিতিশীল দিকসমূহ]:\n${strengths.join('\n') || '• অপারেশনস স্থিতিশীল।'}\n`,
+      `[২. ঘাটতি, দুর্বলতা ও গঠনমূলক সমালোচনা]:\n${gapsAndCritique.join('\n') || '• কোনো উল্লেখযোগ্য কাঠামোগত দুর্বলতা পাওয়া যায়নি।'}\n`,
+      `[৩. সংশোধনমূলক কর্মপরিকল্পনা ও এমডি/চেয়ারম্যান মহোদয়ের নিকট সুপারিশ]:\n${recommendations.join('\n') || `• বর্তমান মনিটরিং ব্যবস্থা অক্ষুণ্ণ রাখার জন্য মাননীয় ${recipient} মহোদয়ের সদয় দিকনির্দেশনা কামনা করছি।`}`,
+    ].join('\n');
+  };
+
   const handleAutoPopulate = () => {
     const pendingList = db.tasks
       .filter((t) => t.status !== 'Done')
       .slice(0, 5)
-      .map((t) => `• [JD #${t.jdNo} | W:${t.kpiWeight}] ${t.title} (${t.assignedCoord})`)
+      .map((t) => `• [JD #${t.jdNo} | Weight:${t.kpiWeight}] ${t.title} (${t.assignedCoord})`)
       .join('\n');
 
-    const urgentRenewalsText = evaluatedRenewals
-      .filter((r) => r.state === 'overdue' || r.state === 'alarm-1m')
-      .map((r) => `• ${r.item.title} — Expiry: ${r.item.expiryDate} (${r.stateLabelBn})`)
+    const urgentRenewalsText = urgentRenewals
+      .map((r) => `• ${r.item.title} — লোকেশন: ${r.item.referenceOrLocation} (মেয়াদ: ${r.item.expiryDate}, ${r.stateLabelBn})`)
       .join('\n');
 
     const nextFields: Record<string, string> = { ...fieldValues };
 
     if (activeTemplate.id === 'daily-ops-report') {
       nextFields.officeDisciplineAndAttendance =
-        'Corporate HQ ও সকল Branch যথাসময়ে খোলা হয়েছে; উপস্থিতি ও জেনারেটর/CCTV চেকলিস্ট স্বাভাবিক।';
-      nextFields.upstreamAndNocStatus = `IIG, GGC, FNA ও NTTN লিংক সচল আছে। সকল ভেন্ডর ইমেইলে ${db.settings.branchOfficialCcEmail} CC নিশ্চিত করা হয়েছে।`;
+        'Corporate HQ ও সকল Branch যথাসময়ে খোলা হয়েছে; বায়োমেট্রিক উপস্থিতি, পাওয়ার/জেনারেটর ও সিসিটিভি স্বাভাবিক।';
+      nextFields.upstreamAndNocStatus = `IIG (Summit), GGC, FNA ও NTTN লিংক শতভাগ আপটাইমে সচল রয়েছে। সকল ভেন্ডর ইমেইলে ${db.settings.branchOfficialCcEmail} CC নিশ্চিত করা হয়েছে।`;
       nextFields.s7RadiusAndMaximStatus =
-        'Maxim S7 বিলিং ও RADIUS ইউজার কানেক্টিভিটি স্বাভাবিক; NOC টিমের মাধ্যমে তদারকি চলমান।';
+        'Maxim S7 বিলিং পোর্টাল ও RADIUS ইউজার কানেক্টিভিটি স্বাভাবিক; কোনো সার্ভিস ইন্টারাপশন নেই।';
       nextFields.pendingBranchAndPartnerIssues =
-        pendingList || 'কোনো ক্রিটিক্যাল পেন্ডিং ইস্যু নেই।';
+        pendingList || 'সকল ব্রাঞ্চ ও পার্টনার সাপোর্ট রুটিন অনুযায়ী চলমান রয়েছে।';
       nextFields.urgentExpiryAlerts =
-        urgentRenewalsText || 'আগামী ৩০ দিনের মধ্যে কোনো জরুরি মেয়াদ উত্তীর্ণ নেই।';
+        urgentRenewalsText || 'আগামী ৩০ দিনের মধ্যে কোনো জরুরি মেয়াদোত্তীর্ণ বা রিনিউয়াল ঝুঁকি নেই।';
       setSummaryText(
-        `আজকের সামগ্রিক অপারেশনস স্বাভাবিক। লাইভ KPI স্কোর: ${kpiSummary.totalScore.toFixed(1)}/100। চলমান পেন্ডিং কাজ ও আগাম ১ মাসের নবায়ন তালিকা সংযুক্ত করা হলো।`
+        `আজকের সামগ্রিক অপারেশনস অগ্রগতি ${checklistPercent}% (${completedChecklists}/${totalChecklists} কাজ সম্পন্ন)। লাইভ KPI স্কোর: ${kpiSummary.totalScore.toFixed(1)}/100। পাই চার্ট ও অপারেশনাল পর্যালোচনা সংযুক্ত করা হলো।`
       );
     } else if (activeTemplate.id === 'upstream-nttn-capacity') {
       nextFields.mdPreApprovalRef =
@@ -173,12 +331,8 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         `${periodLabel} মাসের বিভাগীয় পারফরম্যান্স, পেন্ডিং কাজ ও KPI মূল্যায়ন প্রতিবেদন পেশ করা হলো।`
       );
     } else if (activeTemplate.id === 'monthly-consolidated-coo-md-chairman') {
-      const monthlyChecklist = (db.checklists || []).filter((c) => c.cadence === 'monthly');
-      const completed = monthlyChecklist.filter((c) => c.status === 'Completed').length;
-      const pendingItems = monthlyChecklist.filter((c) => c.status === 'Pending');
-
       nextFields.executiveSummaryAndKeyAchievements =
-        `স্পিড নেট ওভারঅল অপারেশনস স্থিতিশীল। মাসিক চেকলিস্ট অগ্রগতি: ${completed}/${monthlyChecklist.length} সম্পন্ন (${Math.round((completed / (monthlyChecklist.length || 1)) * 100)}%)। সামগ্রিক KPI স্কোর: ${kpiSummary.totalScore.toFixed(1)}/100।`;
+        `স্পিড নেট ওভারঅল অপারেশনস স্থিতিশীল। মাসিক চেকলিস্ট বাস্তবায়ন হার: ${checklistPercent}% (${completedChecklists}/${totalChecklists} সম্পন্ন)। সামগ্রিক KPI স্কোর: ${kpiSummary.totalScore.toFixed(1)}/100।`;
       nextFields.departmentalSupervisionAndManpower =
         'সকল শিফটের বায়োমেট্রিক উপস্থিতি ৯৮.২%; কাস্টমার সার্ভিস কমপ্লেইন রেজোলিউশন রেট ৯৭.৫%। টেকনিক্যাল ও ফিল্ড সাপোর্ট টিম রোস্টার অনুযায়ী সচল।';
       nextFields.networkUptimeAndTransmission =
@@ -190,18 +344,11 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
       nextFields.complianceAndRenewalRisks =
         urgentRenewalsText || 'সকল লাইসেন্স ও অফিস/পিওপি ভাড়ার চুক্তি নবায়ন হালনাগাদ রয়েছে।';
       nextFields.monthlyKpiScoreAndCorrectiveAction =
-        `চলতি মাসের অর্জিত KPI স্কোর: ${kpiSummary.totalScore.toFixed(2)} / ১০০। পেন্ডিং আইটেম (${pendingItems.length}টি) সমাধানের জন্য বিভাগীয় প্রধানদের সাথে সমন্বিত অ্যাকশন প্ল্যান সক্রিয় রয়েছে।`;
+        `চলতি মাসের অর্জিত KPI স্কোর: ${kpiSummary.totalScore.toFixed(2)} / ১০০। পেন্ডিং আইটেম (${pendingChecklists}টি) সমাধানের জন্য বিভাগীয় প্রধানদের সাথে সমন্বিত অ্যাকশন প্ল্যান সক্রিয় রয়েছে।`;
 
       setSummaryText(
-        `মাননীয় Managing Director ও Chairman মহোদয়ের সদয় অবগতির জন্য ${periodLabel} মাসের Consolidated COO Monitoring Report ও মাসিক চেকলিস্ট/KPI অগ্রগতি প্রতিবেদন পেশ করা হলো।`
+        `মাননীয় ${recipient} মহোদয়ের সদয় অবগতির জন্য ${periodLabel} মাসের Consolidated COO Monitoring Report, বাস্তবায়ন পাই চার্ট ও অপারেশনাল পর্যালোচনা প্রতিবেদন পেশ করা হলো।`
       );
-    } else if (activeTemplate.id === 'yearly-compliance-annual-review') {
-      nextFields.annualRegulatoryLicenses = urgentRenewalsText || 'সকল লাইসেন্স হালনাগাদ রয়েছে।';
-      nextFields.annualRentalAndVendorContracts =
-        'Head Office, Branch, POP ও Data Center-এর ভাড়ার চুক্তিসমূহ ৩০ দিনের আগাম অ্যালার্মে মনিটরিং করা হচ্ছে।';
-      nextFields.annualHrAppraisalAndAssetAudit =
-        'বার্ষিক ফিজিক্যাল অ্যাসেট ভেরিফিকেশন ও কর্মী পারফরম্যান্স মূল্যায়ন নথি প্রস্তুত।';
-      setSummaryText(`${periodLabel} সালের বার্ষিক কমপ্লায়েন্স, চুক্তি নবায়ন ও অপারেশনস সারসংক্ষেপ।`);
     } else {
       activeTemplate.fields.forEach((f) => {
         if (!nextFields[f.key]) {
@@ -209,12 +356,13 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         }
       });
       setSummaryText(
-        `${activeTemplate.titleBn} (${periodLabel}) — ${activeTemplate.submittedTo} বরাবর প্রস্তুতকৃত।`
+        `${activeTemplate.titleBn} (${periodLabel}) — ${recipient} বরাবর প্রস্তুতকৃত।`
       );
     }
 
     setFieldValues(nextFields);
-    onNotifyToast('লাইভ ড্যাশবোর্ড ডাটা থেকে রিপোর্ট ফরম্যাট অটো-ফিল করা হয়েছে।');
+    setCritiqueCommentary(buildSmartCritique());
+    onNotifyToast('লাইভ ডাটা, পাই চার্ট ও স্মার্ট সমালোচনা অটো-ফিল করা হয়েছে।');
   };
 
   const buildPlainTextReport = (rep?: SubmittedReport): string => {
@@ -222,6 +370,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     const to = rep ? rep.submittedTo : recipient;
     const period = rep ? rep.periodLabel : periodLabel;
     const summary = rep ? rep.summaryText : summaryText;
+    const critique = rep ? rep.critiqueCommentary : critiqueCommentary;
     const fields = rep ? rep.structuredFields : fieldValues;
     const rows = rep ? rep.capacityRows : activeTemplate.hasCapacityTable ? capacityRows : undefined;
 
@@ -233,10 +382,22 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
       `CC: ${db.settings.branchOfficialCcEmail}`,
       `From: ${db.settings.employeeName}, ${db.settings.designation}`,
       `Period / Date: ${period}`,
+      `Implementation (Pie Chart): ${checklistPercent}% Completed (${completedChecklists}/${totalChecklists}) | Pending: ${pendingPercent}% (${pendingChecklists})`,
+      `Live KPI Score: ${kpiSummary.totalScore.toFixed(1)} / 100`,
       `==================================================`,
       ``,
       summary ? `Executive Summary:\n${summary}\n` : '',
     ];
+
+    if (critique) {
+      lines.push(`Operational Review, Critique & Recommendations:\n${critique}\n`);
+    }
+
+    lines.push(`Departmental Implementation Breakdown:`);
+    categoryStats.forEach((cat) => {
+      lines.push(`- ${cat.num}. ${cat.name}: ${cat.completed}/${cat.total} Completed (${cat.percent}%)`);
+    });
+    lines.push('');
 
     if (rows && rows.length > 0) {
       lines.push(`Upstream & NTTN Capacity Breakdown:`);
@@ -266,7 +427,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
       await navigator.clipboard.writeText(text);
       setCopiedFlag(true);
       setTimeout(() => setCopiedFlag(false), 2000);
-      onNotifyToast('রিপোর্ট টেক্সট (SpeedNet Khulna CC সহ) কপি করা হয়েছে — ইমেইল বা WhatsApp-এ পেস্ট করুন।');
+      onNotifyToast('রিপোর্ট টেক্সট (SpeedNet Khulna CC ও সমালোচনা সহ) কপি করা হয়েছে।');
     } catch {
       onNotifyToast('কপি করতে সমস্যা হয়েছে, প্রিন্ট প্রিভিউ ব্যবহার করুন।');
     }
@@ -287,8 +448,9 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         `${activeTemplate.titleBn} (${periodLabel}) — যথাযথ যাচাইপূর্বক জমা দেওয়া হলো।`,
       structuredFields: fieldValues,
       capacityRows: activeTemplate.hasCapacityTable ? capacityRows : undefined,
+      critiqueCommentary: critiqueCommentary.trim(),
     });
-    onNotifyToast('রিপোর্টটি লোকাল সার্ভার আর্কাইভে সফলভাবে সংরক্ষিত হয়েছে।');
+    onNotifyToast('রিপোর্টটি পাই চার্ট ও সমালোচনাসহ সার্ভার আর্কাইভে সংরক্ষিত হয়েছে।');
   };
 
   const addCapacityRow = () => {
@@ -310,48 +472,38 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     setCapacityRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 
-  const previewReport: SubmittedReport = viewingSavedReport || {
-    id: 'draft',
-    templateId: activeTemplate.id,
-    templateTitle: activeTemplate.title,
-    cadence: activeTemplate.cadence,
-    submittedTo: recipient,
-    periodLabel,
-    createdAt: new Date().toISOString(),
-    preparedBy: `${db.settings.employeeName} (${db.settings.designation})`,
-    ccSpeedNetKhulnaConfirmed: ccConfirmed,
-    summaryText,
-    structuredFields: fieldValues,
-    capacityRows: activeTemplate.hasCapacityTable ? capacityRows : undefined,
-  };
+  // SVG Donut circumference: 2 * Math.PI * 52 ≈ 326.726
+  const circleCircumference = 326.726;
+  const completedStrokeLength = (checklistPercent / 100) * circleCircumference;
+  const pendingStrokeLength = circleCircumference - completedStrokeLength;
 
   return (
     <div className="space-y-8">
       {/* Top Template Selector (No-Print) */}
-      <section className="bg-white border border-slate-200 rounded-xl p-6 no-print">
+      <section className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm no-print">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">
               COO অফিসিয়াল রিপোর্টিং ফরম্যাট ও সাবমিশন ম্যাট্রিক্স (Daily · Monthly · Yearly)
             </h2>
-            <p className="text-xs text-slate-600 mt-0.5">
-              JD Section M-এর সকল রিপোর্ট ফরম্যাট নিচে প্রস্তুত আছে। যেকোনো ফরম্যাট সিলেক্ট করে অটো-ফিল, সেভ, ইমেইল কপি বা প্রিন্ট করুন।
+            <p className="text-xs text-slate-600 mt-1">
+              JD Section M অনুযায়ী সকল রিপোর্ট ফরম্যাট নিচে প্রস্তুত আছে। লাইভ অগ্রগতি চার্ট, পাই চার্ট ও যৌক্তিক মূল্যায়নসহ রিপোর্ট প্রিন্ট বা আর্কাইভ করুন।
             </p>
           </div>
 
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start shrink-0">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80 self-start shrink-0">
             {(['all', 'daily', 'monthly', 'yearly'] as const).map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setCadenceFilter(c)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors capitalize whitespace-nowrap cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all capitalize whitespace-nowrap cursor-pointer ${
                   cadenceFilter === c
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {c === 'all' ? 'সকল ফরম্যাট (9)' : c}
+                {c === 'all' ? 'সকল ফরম্যাট' : c}
               </button>
             ))}
           </div>
@@ -369,17 +521,17 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                   setSelectedTemplateId(tpl.id);
                   setViewingSavedReport(null);
                 }}
-                className={`text-left p-3.5 rounded-lg border transition-colors cursor-pointer ${
+                className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
                   active
-                    ? 'border-blue-600 bg-blue-50/50'
+                    ? 'border-blue-600 bg-blue-50/60 shadow-xs ring-1 ring-blue-600/30'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center justify-between text-xs text-slate-500 font-mono tabular-nums">
-                  <span className="capitalize">{tpl.cadence}</span>
-                  <span>To: {tpl.submittedTo}</span>
+                  <span className="capitalize font-bold text-blue-700">{tpl.cadence}</span>
+                  <span className="text-[11px] text-slate-600">To: {tpl.submittedTo}</span>
                 </div>
-                <div className="text-sm font-semibold text-slate-900 mt-1 line-clamp-1">
+                <div className="text-sm font-bold text-slate-950 mt-1 line-clamp-1">
                   {tpl.titleBn}
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">{tpl.jdRef}</div>
@@ -391,17 +543,17 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
 
       {/* Builder + Official Print Letterhead Split */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* Form Builder (Left 6 Cols, Hidden on Print) */}
-        <section className="xl:col-span-6 bg-white border border-slate-200 rounded-xl p-6 no-print">
-          <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-200">
+        {/* Form Builder (Left 5 Cols, Hidden on Print) */}
+        <section className="xl:col-span-5 bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm no-print space-y-4">
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200">
             <div>
-              <h3 className="text-base font-semibold text-slate-900">
+              <h3 className="text-base font-bold text-slate-900">
                 {viewingSavedReport
                   ? 'সংরক্ষিত রিপোর্ট দেখছেন'
-                  : `${activeTemplate.titleBn} — তথ্য পূরণ`}
+                  : `${activeTemplate.titleBn} — এডিটর`}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                জমা দেওয়ার কর্তৃপক্ষ: <strong>{activeTemplate.submittedTo}</strong> · {activeTemplate.jdRef}
+                জমা দেওয়ার কর্তৃপক্ষ: <strong>{recipient}</strong>
               </p>
             </div>
 
@@ -409,9 +561,10 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
               <button
                 type="button"
                 onClick={handleAutoPopulate}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-all whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+                title="লাইভ ডাটা, পাই চার্ট ও স্মার্ট সমালোচনা পূরণ করুন"
               >
-                <Sparkles className="h-3.5 w-3.5" />
+                <Sparkles className="h-3.5 w-3.5 text-amber-500" />
                 <span>লাইভ ডাটা অটো-ফিল</span>
               </button>
             )}
@@ -419,89 +572,120 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
 
           {viewingSavedReport ? (
             <div className="py-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                ডানপাশের প্রিভিউতে সংরক্ষিত রিপোর্টটি দেখা যাচ্ছে। আপনি এটি প্রিন্ট করতে পারেন অথবা নতুন রিপোর্ট লিখতে নিচের বাটনে ক্লিক করুন।
+              <p className="text-xs text-slate-600 leading-relaxed">
+                ডানপাশের প্রিভিউতে সংরক্ষিত রিপোর্টটি পাই চার্ট ও সমালোচনাসহ প্রদর্শিত হচ্ছে। আপনি এটি সরাসরি A4 পেজে প্রিন্ট করতে পারেন অথবা নতুন রিপোর্ট লিখতে নিচের বাটনে ক্লিক করুন।
               </p>
               <button
                 type="button"
                 onClick={() => setViewingSavedReport(null)}
-                className="px-4 py-2 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 cursor-pointer"
+                className="w-full px-4 py-2.5 text-xs font-bold text-white bg-slate-900 rounded-xl hover:bg-black transition-all cursor-pointer shadow-sm"
               >
                 নতুন রিপোর্ট এডিটরে ফিরে যান
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSaveReport} className="mt-4 space-y-4">
+            <form onSubmit={handleSaveReport} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    রিপোর্ট তারিখ / মাস / বছর
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    রিপোর্ট তারিখ / মাস / বছর *
                   </label>
                   <input
                     type="text"
                     value={periodLabel}
                     onChange={(e) => setPeriodLabel(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     কাকে জমা দেবেন (Recipient Dropdown) *
                   </label>
                   <select
                     value={recipient}
                     onChange={(e) => setRecipient(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs text-slate-900 cursor-pointer"
+                    className="w-full px-3 py-2 text-xs font-bold bg-white border border-blue-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs text-slate-900 cursor-pointer"
                   >
                     <option value="Managing Director (MD)">Managing Director (MD)</option>
                     <option value="Chairman">Chairman</option>
                     <option value="Managing Director / Chairman">MD & Chairman (উভয়কে)</option>
                     <option value="CFO / Accounts Department">CFO / Accounts Department</option>
-                    <option value="Management">Management Committee</option>
+                    <option value="Management Committee">Management Committee</option>
                     <option value="COO Self-Record / Internal Audit">COO Self-Record / Audit</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   এক্সিকিউটিভ সারসংক্ষেপ (Executive Summary)
                 </label>
                 <textarea
                   rows={2}
                   value={summaryText}
                   onChange={(e) => setSummaryText(e.target.value)}
-                  placeholder="রিপোর্টের মূল সারসংক্ষেপ ২ লাইনে লিখুন..."
-                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  placeholder="রিপোর্টের মূল সারসংক্ষেপ ২-৩ লাইনে লিখুন..."
+                  className="w-full px-3.5 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 leading-relaxed font-medium"
+                />
+              </div>
+
+              {/* NEW SECTION: Operational Critique & Commentary Field */}
+              <div className="p-3.5 bg-gradient-to-br from-amber-50/50 via-white to-slate-50 border border-amber-300/80 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                    <MessageSquareQuote className="h-4 w-4 text-amber-700" />
+                    <span>রিপোর্ট সংক্রান্ত সমালোচনা, পর্যালোচনা ও এক্সিকিউটিভ মন্তব্য</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCritiqueCommentary(buildSmartCritique());
+                      onNotifyToast('স্মার্ট সমালোচনা ও এক্সিকিউটিভ মন্তব্য জেনারেট করা হয়েছে।');
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100/80 hover:bg-amber-200/80 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="h-3 w-3 text-amber-700" />
+                    <span>স্মার্ট সমালোচনা জেনারেট</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  অপারেশনের দুর্বলতা, যে কাজগুলো বাকি রয়েছে তার গঠনমূলক সমালোচনা এবং এমডি/চেয়ারম্যান মহোদয়ের নিকট করণীয় সুপারিশ এখানে লিখুন।
+                </p>
+                <textarea
+                  rows={4}
+                  value={critiqueCommentary}
+                  onChange={(e) => setCritiqueCommentary(e.target.value)}
+                  placeholder="১. অর্জিত সাফল্য...&#10;২. দুর্বলতা ও ঘাটতির সমালোচনা...&#10;৩. সুপারিশ ও করণীয়..."
+                  className="w-full px-3.5 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-[11px] leading-relaxed"
                 />
               </div>
 
               {activeTemplate.hasCapacityTable && (
-                <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50">
+                <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-800">
+                    <span className="text-xs font-bold text-slate-800">
                       Upstream & NTTN Link Capacity Table (Mbps)
                     </span>
                     <button
                       type="button"
                       onClick={addCapacityRow}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline cursor-pointer"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:underline cursor-pointer"
                     >
-                      <Plus className="h-3 w-3" /> লিংক রো যোগ করুন
+                      <Plus className="h-3 w-3" /> লিংক রো যোগ
                     </button>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {capacityRows.map((row, idx) => (
                       <div
                         key={idx}
-                        className="grid grid-cols-12 gap-1.5 bg-white p-2 border border-slate-200 rounded text-xs"
+                        className="grid grid-cols-12 gap-1.5 bg-white p-2 border border-slate-200 rounded-lg text-xs"
                       >
                         <input
                           type="text"
                           value={row.providerName}
                           onChange={(e) => updateCapacityRow(idx, { providerName: e.target.value })}
                           placeholder="Provider"
-                          className="col-span-4 px-2 py-1 border border-slate-200 rounded"
+                          className="col-span-5 px-2 py-1 border border-slate-200 rounded text-xs"
                         />
                         <select
                           value={row.linkType}
@@ -510,7 +694,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                               linkType: e.target.value as CapacityRow['linkType'],
                             })
                           }
-                          className="col-span-2 px-1.5 py-1 border border-slate-200 rounded"
+                          className="col-span-3 px-1 py-1 border border-slate-200 rounded text-xs"
                         >
                           <option value="IIG">IIG</option>
                           <option value="GGC">GGC</option>
@@ -518,42 +702,14 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                           <option value="CDN">CDN</option>
                           <option value="NTTN">NTTN</option>
                         </select>
-                        <select
-                          value={row.changeType}
-                          onChange={(e) =>
-                            updateCapacityRow(idx, {
-                              changeType: e.target.value as CapacityRow['changeType'],
-                            })
-                          }
-                          className="col-span-2 px-1.5 py-1 border border-slate-200 rounded"
-                        >
-                          <option value="Upgrade">Upgrade</option>
-                          <option value="Downgrade">Downgrade</option>
-                          <option value="Activation">Activation</option>
-                          <option value="Disconnection">Disconnect</option>
-                          <option value="No Change">No Change</option>
-                        </select>
-                        <input
-                          type="number"
-                          value={row.changeMbps}
-                          onChange={(e) =>
-                            updateCapacityRow(idx, { changeMbps: Number(e.target.value) })
-                          }
-                          placeholder="Δ Mbps"
-                          title="পরিবর্তনের পরিমাণ (Mbps)"
-                          className="col-span-2 px-2 py-1 font-mono border border-slate-200 rounded"
-                        />
                         <input
                           type="number"
                           value={row.currentCapacityMbps}
                           onChange={(e) =>
-                            updateCapacityRow(idx, {
-                              currentCapacityMbps: Number(e.target.value),
-                            })
+                            updateCapacityRow(idx, { currentCapacityMbps: Number(e.target.value) })
                           }
-                          placeholder="Total Mbps"
-                          title="বর্তমান মোট Capacity (Mbps)"
-                          className="col-span-2 px-2 py-1 font-mono border border-slate-200 rounded"
+                          placeholder="Mbps"
+                          className="col-span-4 px-1.5 py-1 border border-slate-200 rounded font-mono text-right text-xs"
                         />
                       </div>
                     ))}
@@ -561,37 +717,40 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                 </div>
               )}
 
-              {activeTemplate.fields.map((field) => (
-                <div key={field.key}>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    {field.labelBn}
-                  </label>
-                  {field.multiline ? (
-                    <textarea
-                      rows={3}
-                      value={fieldValues[field.key] || ''}
-                      onChange={(e) =>
-                        setFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                      }
-                      placeholder={field.placeholder}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={fieldValues[field.key] || ''}
-                      onChange={(e) =>
-                        setFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                      }
-                      placeholder={field.placeholder}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    />
-                  )}
-                </div>
-              ))}
+              {/* Dynamic Form Fields */}
+              <div className="space-y-3 pt-1">
+                {activeTemplate.fields.map((field) => (
+                  <div key={field.key}>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      {field.labelBn}
+                    </label>
+                    {field.multiline ? (
+                      <textarea
+                        rows={2}
+                        value={fieldValues[field.key] || ''}
+                        onChange={(e) =>
+                          setFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        }
+                        placeholder={field.placeholder}
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={fieldValues[field.key] || ''}
+                        onChange={(e) =>
+                          setFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        }
+                        placeholder={field.placeholder}
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
 
               {/* JD #09 Official Email CC Compliance Checkbox */}
-              <label className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 cursor-pointer">
+              <label className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={ccConfirmed}
@@ -599,127 +758,347 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                   className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-600"
                 />
                 <span>
-                  <strong>JD #09 কমপ্লায়েন্স চেক:</strong> ইমেইলে পাঠানোর সময় SpeedNet Khulna-এর অফিসিয়াল ইমেইল (
-                  <span className="font-mono">{db.settings.branchOfficialCcEmail}</span>) CC-তে রাখা হয়েছে।
+                  <strong>JD #09 কমপ্লায়েন্স চেক:</strong> SpeedNet Khulna-এর অফিসিয়াল ইমেইল (
+                  <span className="font-mono text-blue-700 font-bold">{db.settings.branchOfficialCcEmail}</span>) CC নিশ্চিত করা হয়েছে।
                 </span>
               </label>
 
               <div className="pt-2 flex flex-wrap items-center gap-2">
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm transition-all cursor-pointer active:scale-95"
                 >
-                  <FileCheck2 className="h-3.5 w-3.5" />
-                  <span>সার্ভারে রিপোর্ট সেভ করুন</span>
+                  <FileCheck2 className="h-4 w-4" />
+                  <span>সার্ভারে সেভ করুন</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleCopyText}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   {copiedFlag ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    <Check className="h-4 w-4 text-emerald-600" />
                   ) : (
-                    <Copy className="h-3.5 w-3.5" />
+                    <Copy className="h-4 w-4" />
                   )}
-                  <span>ইমেইল / WhatsApp টেক্সট কপি</span>
+                  <span>টেক্সট কপি</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-900 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-sm transition-all cursor-pointer active:scale-95"
                 >
-                  <Printer className="h-3.5 w-3.5" />
-                  <span>প্রিন্ট / PDF</span>
+                  <Printer className="h-4 w-4 text-amber-400" />
+                  <span>A4 প্রিন্ট / PDF</span>
                 </button>
               </div>
             </form>
           )}
         </section>
 
-        {/* Live Official Letterhead Preview (Right 6 Cols, Full Width on Print) */}
-        <section className="xl:col-span-6 bg-white border border-slate-200/90 rounded-2xl p-7 shadow-sm print-sheet">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 no-print">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              অফিসিয়াল লেটারহেড প্রিভিউ (A4 Format)
+        {/* Live Official Letterhead Preview (Right 7 Cols, Full Width on Print) */}
+        <section className="xl:col-span-7 bg-white border border-slate-200/90 rounded-2xl p-7 sm:p-9 shadow-sm print-sheet">
+          {/* Web-only action bar */}
+          <div className="flex items-center justify-between pb-3 mb-5 border-b border-slate-200 no-print">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+              <span>অফিসিয়াল লেটারহেড প্রিন্ট প্রিভিউ (A4 Format)</span>
             </span>
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-black rounded-xl shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-md transition-all cursor-pointer active:scale-95"
             >
-              <Printer className="h-3.5 w-3.5 text-amber-400" />
-              <span>এই রিপোর্টটি সরাসরি প্রিন্ট করুন</span>
+              <Printer className="h-4 w-4 text-amber-400" />
+              <span>এই রিপোর্টটি সরাসরি A4 প্রিন্ট করুন</span>
             </button>
           </div>
 
+          {/* Official Letterhead Header */}
           <div className="border-b-2 border-slate-950 pb-4 flex items-start justify-between gap-4">
             <div>
-              <div className="text-xl font-extrabold tracking-tight text-slate-950">
+              <div className="text-2xl font-black tracking-tight text-slate-950 uppercase">
                 {db.settings.companyName}
               </div>
-              <div className="text-xs text-slate-600 font-medium">
-                Office of the Chief Operating Officer (Administration & Operations)
+              <div className="text-xs font-bold text-slate-700 tracking-wide mt-0.5">
+                OFFICE OF THE CHIEF OPERATING OFFICER (OPERATIONS & ADMINISTRATION)
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                Corporate HQ: Khulna, Bangladesh · Official CC: {db.settings.branchOfficialCcEmail}
               </div>
             </div>
-            <div className="text-right font-mono text-xs text-slate-700 tabular-nums">
-              <div>Period: {previewReport.periodLabel}</div>
-              <div>Date: {previewReport.createdAt.slice(0, 10)}</div>
+            <div className="text-right font-mono text-xs text-slate-800 tabular-nums shrink-0">
+              <div className="font-bold text-slate-950">
+                REF: SN-COO-{isMonthlyReport ? 'M' : 'D'}-{previewReport.periodLabel.replace(/[^a-zA-Z0-9]/g, '')}
+              </div>
+              <div>তারিখ: {previewReport.createdAt.slice(0, 10)}</div>
+              <div>পর্যায়: {previewReport.periodLabel}</div>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs bg-slate-50 border border-slate-200 rounded-lg p-3">
+          {/* Submission Metadata Block */}
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs bg-slate-50 border border-slate-300 rounded-xl p-3.5 print:bg-slate-50">
             <div>
-              <span className="text-slate-500">Submitted To:</span>{' '}
-              <strong className="text-slate-900">{previewReport.submittedTo}</strong>
+              <span className="text-slate-500 font-semibold">Submitted To:</span>{' '}
+              <strong className="text-slate-950 font-bold">{previewReport.submittedTo}</strong>
             </div>
             <div>
-              <span className="text-slate-500">Official CC:</span>{' '}
-              <span className="font-mono text-slate-800">
+              <span className="text-slate-500 font-semibold">Official CC:</span>{' '}
+              <span className="font-mono font-bold text-slate-900">
                 {db.settings.branchOfficialCcEmail}
               </span>
             </div>
             <div className="col-span-2">
-              <span className="text-slate-500">Subject:</span>{' '}
-              <strong className="text-slate-900">{previewReport.templateTitle}</strong>
+              <span className="text-slate-500 font-semibold">Subject:</span>{' '}
+              <strong className="text-slate-950 font-bold text-sm">
+                {previewReport.templateTitle} ({previewReport.periodLabel})
+              </strong>
+            </div>
+            <div className="col-span-2 text-slate-600 text-[11px]">
+              <span>Prepared By: </span>
+              <strong>{db.settings.employeeName}</strong>, {db.settings.designation} ({db.settings.department})
             </div>
           </div>
 
+          {/* Executive Summary */}
           {previewReport.summaryText && (
-            <div className="mt-4">
-              <h4 className="text-xs font-semibold text-slate-500">Executive Summary</h4>
-              <p className="text-xs text-slate-800 mt-1 whitespace-pre-line leading-relaxed">
+            <div className="mt-4 p-3.5 bg-blue-50/40 border border-blue-200/80 rounded-xl">
+              <h4 className="text-xs font-bold text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
+                <span>Executive Summary & Overview</span>
+              </h4>
+              <p className="text-xs text-slate-800 mt-1 whitespace-pre-line leading-relaxed font-medium">
                 {previewReport.summaryText}
               </p>
             </div>
           )}
 
+          {/* SECTION 1: VISUAL PIE CHART & OPERATIONAL IMPLEMENTATION BREAKDOWN */}
+          <div className="mt-5 border border-slate-300 rounded-xl p-4.5 bg-white break-inside-avoid print:break-inside-avoid print:border-slate-400">
+            <div className="flex items-center justify-between pb-2.5 mb-3.5 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <PieIcon className="h-4 w-4 text-blue-700" />
+                <h4 className="text-xs font-bold text-slate-950 uppercase tracking-wider">
+                  ১. অপারেশনাল বাস্তবায়ন পাই চার্ট ও ক্যাটাগরি প্রগ্রেস ({isMonthlyReport ? 'Monthly Report' : 'Daily Report'})
+                </h4>
+              </div>
+              <span className="font-mono text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300">
+                {checklistPercent}% অর্জিত
+              </span>
+            </div>
+
+            {/* Split Grid: Left Side Vector Pie/Donut Chart + Right Side Metric Legend */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-5 items-center mb-4 pb-4 border-b border-slate-200">
+              {/* Left Column (5 Cols): Vector SVG Pie/Donut Chart */}
+              <div className="sm:col-span-5 flex flex-col items-center justify-center">
+                <div className="relative w-36 h-36 flex items-center justify-center">
+                  <svg
+                    className="w-36 h-36 -rotate-90 transform"
+                    viewBox="0 0 130 130"
+                  >
+                    {/* Background Ring */}
+                    <circle
+                      cx="65"
+                      cy="65"
+                      r="52"
+                      fill="transparent"
+                      stroke="#f1f5f9"
+                      strokeWidth="20"
+                    />
+                    {/* Pending Slice (Amber Gold) */}
+                    <circle
+                      cx="65"
+                      cy="65"
+                      r="52"
+                      fill="transparent"
+                      stroke="#d97706"
+                      strokeWidth="20"
+                      strokeDasharray={`${circleCircumference} ${circleCircumference}`}
+                      strokeDashoffset={0}
+                    />
+                    {/* Completed Slice (Emerald Green) */}
+                    <circle
+                      cx="65"
+                      cy="65"
+                      r="52"
+                      fill="transparent"
+                      stroke="#059669"
+                      strokeWidth="20"
+                      strokeDasharray={`${completedStrokeLength} ${circleCircumference}`}
+                      strokeDashoffset={0}
+                      className="transition-all duration-500"
+                    />
+                  </svg>
+
+                  {/* Center Text in Donut */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                    <span className="text-2xl font-black font-mono text-slate-950 tabular-nums leading-none">
+                      {checklistPercent}%
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase mt-0.5">
+                      অর্জিত
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] font-bold text-slate-600 mt-2 font-mono">
+                  পাই চার্ট: বাস্তবায়ন বণ্টন
+                </div>
+              </div>
+
+              {/* Right Column (7 Cols): Slices Breakdown & KPI Metric Strip */}
+              <div className="sm:col-span-7 space-y-2.5">
+                <div className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  বাস্তবায়ন ও দায়িত্ব বিশ্লেষণ (Task Distribution):
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {/* Completed Slice Card */}
+                  <div className="p-2.5 bg-emerald-50/80 border border-emerald-300 rounded-xl">
+                    <div className="flex items-center gap-1.5 text-emerald-900 font-bold text-xs">
+                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
+                      <span>সম্পন্ন কাজ</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-1.5 font-mono">
+                      <span className="text-lg font-black text-emerald-950 tabular-nums">
+                        {completedChecklists}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-800">
+                        ({checklistPercent}%)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Pending Slice Card */}
+                  <div className="p-2.5 bg-amber-50/80 border border-amber-300 rounded-xl">
+                    <div className="flex items-center gap-1.5 text-amber-950 font-bold text-xs">
+                      <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                      <span>পেন্ডিং কাজ</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-1.5 font-mono">
+                      <span className="text-lg font-black text-amber-950 tabular-nums">
+                        {pendingChecklists}
+                      </span>
+                      <span className="text-xs font-bold text-amber-800">
+                        ({pendingPercent}%)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* KPI Points & Safety Status Bar */}
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-slate-500 text-[11px] font-semibold">লাইভ KPI স্কোর:</span>{' '}
+                    <strong className="font-mono text-slate-950 font-bold">
+                      {kpiSummary.totalScore.toFixed(1)} / 100
+                    </strong>
+                  </div>
+                  <div className="font-mono text-xs">
+                    <span className="text-slate-500 text-[11px]">ঝুঁকি অ্যালার্ম:</span>{' '}
+                    <strong className="text-red-700 font-bold">{urgentRenewals.length}টি ফাইল</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Department / Category-wise Horizontal Completion Breakdown Chart */}
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                বিভাগ ও ক্যাটাগরিভিত্তিক বাস্তবায়ন অগ্রগতি:
+              </div>
+
+              <div className="space-y-2">
+                {categoryStats.map((cat) => {
+                  const isFull = cat.percent === 100;
+                  const isZero = cat.percent === 0;
+
+                  return (
+                    <div key={cat.num} className="space-y-0.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-900 truncate max-w-[260px] sm:max-w-md">
+                          {cat.num}. {cat.name}
+                        </span>
+                        <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums shrink-0">
+                          <span className="font-bold text-slate-800">
+                            {cat.completed}/{cat.total}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                              isFull
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : isZero
+                                ? 'bg-slate-100 text-slate-700'
+                                : 'bg-amber-100 text-amber-900'
+                            }`}
+                          >
+                            {cat.percent}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Visual Bar */}
+                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-300">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            isFull
+                              ? 'bg-emerald-600'
+                              : isZero
+                              ? 'bg-slate-300'
+                              : 'bg-blue-600'
+                          }`}
+                          style={{ width: `${Math.max(3, cat.percent)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 2: OPERATIONAL CRITIQUE, REVIEW & REMARKS (REQUIRED BY USER: Report Critique & Commentary) */}
+          {previewReport.critiqueCommentary && (
+            <div className="mt-5 border border-amber-300 bg-amber-50/30 rounded-xl p-4.5 break-inside-avoid print:break-inside-avoid">
+              <div className="flex items-center gap-2 pb-2.5 mb-2.5 border-b border-amber-200">
+                <MessageSquareQuote className="h-4 w-4 text-amber-800 shrink-0" />
+                <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+                  ২. অপারেশনাল পর্যালোচনা, যৌক্তিক সমালোচনা ও এক্সিকিউটিভ মন্তব্য (COO Evaluation & Critique)
+                </h4>
+              </div>
+
+              <div className="text-xs text-slate-900 whitespace-pre-line leading-relaxed font-mono text-[11px] bg-white/80 p-3 rounded-lg border border-amber-200/80">
+                {previewReport.critiqueCommentary}
+              </div>
+            </div>
+          )}
+
+          {/* Upstream & NTTN Capacity Statement Table (if applicable) */}
           {previewReport.capacityRows && previewReport.capacityRows.length > 0 && (
-            <div className="mt-5 overflow-x-auto">
-              <h4 className="text-xs font-semibold text-slate-700 mb-2">
+            <div className="mt-5 break-inside-avoid print:break-inside-avoid">
+              <h4 className="text-xs font-bold text-slate-950 mb-2 uppercase tracking-wider">
                 Upstream (IIG, GGC, FNA, CDN) & NTTN Capacity Statement
               </h4>
               <table className="w-full text-left border-collapse text-xs border border-slate-300">
                 <thead>
-                  <tr className="bg-slate-100 border-b border-slate-300">
-                    <th className="py-1.5 px-2">Provider / Link</th>
-                    <th className="py-1.5 px-2">Type</th>
-                    <th className="py-1.5 px-2">Action</th>
-                    <th className="py-1.5 px-2 text-right">Δ Mbps</th>
-                    <th className="py-1.5 px-2 text-right">Current Mbps</th>
+                  <tr className="bg-slate-100 border-b border-slate-300 font-bold">
+                    <th className="py-2 px-2.5">Provider / Link</th>
+                    <th className="py-2 px-2">Type</th>
+                    <th className="py-2 px-2">Action</th>
+                    <th className="py-2 px-2 text-right">Δ Mbps</th>
+                    <th className="py-2 px-2 text-right">Current Capacity</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {previewReport.capacityRows.map((r, idx) => (
                     <tr key={idx}>
-                      <td className="py-1.5 px-2 font-medium text-slate-900">{r.providerName}</td>
+                      <td className="py-1.5 px-2.5 font-semibold text-slate-950">{r.providerName}</td>
                       <td className="py-1.5 px-2 font-mono">{r.linkType}</td>
                       <td className="py-1.5 px-2">{r.changeType}</td>
                       <td className="py-1.5 px-2 font-mono text-right tabular-nums">
                         {r.changeMbps > 0 ? `+${r.changeMbps}` : r.changeMbps}
                       </td>
-                      <td className="py-1.5 px-2 font-mono font-semibold text-right tabular-nums">
-                        {r.currentCapacityMbps}
+                      <td className="py-1.5 px-2 font-mono font-bold text-right tabular-nums">
+                        {r.currentCapacityMbps} Mbps
                       </td>
                     </tr>
                   ))}
@@ -728,16 +1107,17 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
             </div>
           )}
 
-          <div className="mt-5 space-y-3.5">
+          {/* Structured Questionnaire Fields */}
+          <div className="mt-5 space-y-3.5 break-inside-avoid print:break-inside-avoid">
             {Object.entries(previewReport.structuredFields).map(([k, val]) => {
               if (!val) return null;
               const def = REPORT_TEMPLATES.flatMap((t) => t.fields).find((f) => f.key === k);
               return (
-                <div key={k} className="border-b border-slate-100 pb-2.5">
-                  <div className="text-xs font-semibold text-slate-800">
+                <div key={k} className="border-b border-slate-200 pb-2.5">
+                  <div className="text-xs font-bold text-slate-900">
                     {def ? def.labelBn : k}
                   </div>
-                  <div className="text-xs text-slate-700 mt-1 whitespace-pre-line leading-relaxed">
+                  <div className="text-xs text-slate-800 mt-1 whitespace-pre-line leading-relaxed font-normal">
                     {val}
                   </div>
                 </div>
@@ -745,57 +1125,79 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
             })}
           </div>
 
-          <div className="mt-10 pt-6 border-t border-slate-200 flex items-end justify-between text-xs text-slate-700">
+          {/* Official Signatures & Endorsements Block */}
+          <div className="mt-12 pt-6 border-t-2 border-slate-950 flex items-end justify-between text-xs text-slate-900 break-inside-avoid print:break-inside-avoid">
             <div>
-              <div className="font-semibold text-slate-900">{db.settings.employeeName}</div>
-              <div>{db.settings.designation}</div>
-              <div className="text-slate-500">{db.settings.department}</div>
-            </div>
-            <div className="text-right">
-              <div className="border-t border-slate-400 pt-1 px-6">
-                Approved / Received By ({previewReport.submittedTo})
+              <div className="font-bold text-slate-950 text-sm">{db.settings.employeeName}</div>
+              <div className="font-semibold text-slate-700">{db.settings.designation}</div>
+              <div className="text-slate-500 text-[11px]">{db.settings.companyName}</div>
+              <div className="text-slate-400 font-mono text-[10px] mt-1">
+                Signed electronically on {previewReport.createdAt.slice(0, 10)}
               </div>
+            </div>
+
+            <div className="text-right">
+              <div className="border-t border-slate-600 pt-1.5 px-8 font-bold text-slate-950">
+                Approved & Received By
+              </div>
+              <div className="text-slate-700 text-[11px] mt-0.5">
+                {previewReport.submittedTo}
+              </div>
+              <div className="text-slate-400 text-[10px] font-mono">Date: ____________________</div>
             </div>
           </div>
         </section>
       </div>
 
-      {/* Saved Reports Archive */}
-      <section className="bg-white border border-slate-200 rounded-xl p-6 no-print">
-        <h3 className="text-base font-semibold text-slate-900">
-          সার্ভারে সংরক্ষিত পূর্ববর্তী রিপোর্ট আর্কাইভ ({db.reports.length})
+      {/* Saved Reports Archive (No-Print) */}
+      <section className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm no-print">
+        <h3 className="text-base font-bold text-slate-900">
+          সার্ভারে সংরক্ষিত পূর্ববর্তী রিপোর্ট আর্কাইভ ({db.reports.length}টি রিপোর্ট)
         </h3>
-        <div className="mt-3 divide-y divide-slate-200">
-          {db.reports.map((rep) => (
-            <div
-              key={rep.id}
-              className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-            >
-              <div>
-                <div className="text-sm font-semibold text-slate-900">{rep.templateTitle}</div>
-                <div className="text-xs text-slate-500 font-mono tabular-nums mt-0.5">
-                  {rep.periodLabel} · To: {rep.submittedTo} · Saved: {rep.createdAt.slice(0, 10)}
+        <p className="text-xs text-slate-500 mt-0.5">
+          যেকোনো সময় পূর্ববর্তী রিপোর্ট ওপেন করে প্রিভিউ, পাই চার্ট, এক্সিকিউটিভ সমালোচনা ও পুনরায় প্রিন্ট করতে পারবেন।
+        </p>
+
+        <div className="mt-4 divide-y divide-slate-100">
+          {db.reports.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-500">
+              এখনো কোনো রিপোর্ট আর্কাইভে সেভ করা হয়নি।
+            </div>
+          ) : (
+            db.reports.map((rep) => (
+              <div
+                key={rep.id}
+                className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <div>
+                  <div className="text-sm font-bold text-slate-900">{rep.templateTitle}</div>
+                  <div className="text-xs text-slate-500 font-mono tabular-nums mt-0.5">
+                    {rep.periodLabel} · To: <strong className="text-slate-700 font-sans">{rep.submittedTo}</strong> · Saved: {rep.createdAt.slice(0, 10)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewingSavedReport(rep);
+                      window.scrollTo({ top: 300, behavior: 'smooth' });
+                    }}
+                    className="px-3.5 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer"
+                  >
+                    প্রিভিউ ও প্রিন্ট
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteReport(rep.id)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                    title="মুছে ফেলুন"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setViewingSavedReport(rep)}
-                  className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer"
-                >
-                  প্রিভিউ ও প্রিন্ট
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDeleteReport(rep.id)}
-                  className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"
-                  title="মুছে ফেলুন"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </section>
     </div>

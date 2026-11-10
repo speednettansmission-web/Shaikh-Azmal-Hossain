@@ -103,6 +103,7 @@ export interface SubmittedReport {
   summaryText: string;
   structuredFields: Record<string, string>;
   capacityRows?: CapacityRow[];
+  critiqueCommentary?: string;
 }
 
 export interface AppSettings {

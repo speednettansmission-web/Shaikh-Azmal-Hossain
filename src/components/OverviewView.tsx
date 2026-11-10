@@ -10,6 +10,7 @@ import {
   CheckSquare2,
   Clock,
   Compass,
+  Edit2,
   FilePlus2,
   FileSpreadsheet,
   ListFilter,
@@ -276,6 +277,15 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       মাত্র {daysRemaining} দিন বাকি
                     </span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('alarms')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors shadow-2xs cursor-pointer"
+                    title="আইটেম, লোকেশন বা মেয়াদের তারিখ সংশোধন করুন"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                    <span>সংশোধন</span>
+                  </button>
                 </div>
               </div>
             ))}

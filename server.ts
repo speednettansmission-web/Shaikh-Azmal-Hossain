@@ -281,6 +281,7 @@ async function startServer() {
       summaryText: String(body.summaryText || ''),
       structuredFields: body.structuredFields || {},
       capacityRows: body.capacityRows || undefined,
+      critiqueCommentary: String(body.critiqueCommentary || ''),
     };
     db.reports.unshift(report);
     res.json(saveDb(db));
