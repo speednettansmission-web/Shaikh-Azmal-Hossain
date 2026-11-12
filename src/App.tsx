@@ -211,6 +211,13 @@ export default function App() {
     );
   };
 
+  const handlePlanNextDay = async (payload: {
+    carryoverItems: { id: string; taskText: string; remarks: string; priority: boolean }[];
+    standardRoutineItemIds: string[];
+  }) => {
+    await apiMutate('/api/checklist/plan-next-day', 'POST', payload);
+  };
+
   const pendingChecklistCount = useMemo(() => {
     return (effectiveDb.checklists || []).filter((c) => c.status === 'Pending').length;
   }, [effectiveDb.checklists]);
@@ -493,6 +500,7 @@ export default function App() {
                   onDeleteChecklistItem={handleDeleteChecklistItem}
                   onResetChecklist={handleResetChecklist}
                   onNavigateToReports={(tplId) => handleNavigate('reports', tplId)}
+                  onPlanNextDay={handlePlanNextDay}
                   onNotifyToast={showToast}
                 />
               )}
@@ -527,6 +535,8 @@ export default function App() {
                   initialTemplateId={reportTemplateId}
                   onSubmitReport={handleSubmitReport}
                   onDeleteReport={handleDeleteReport}
+                  onPlanNextDay={handlePlanNextDay}
+                  onNavigateToChecklist={() => handleNavigate('checklists')}
                   onNotifyToast={showToast}
                 />
               )}

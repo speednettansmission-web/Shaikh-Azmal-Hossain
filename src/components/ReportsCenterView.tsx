@@ -1,22 +1,33 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  Archive,
   Award,
   BarChart3,
+  Calendar,
+  CalendarDays,
   Check,
   CheckCircle2,
   Clock,
   Compass,
   Copy,
+  CornerDownRight,
+  ExternalLink,
   FileCheck2,
   FileSpreadsheet,
+  Filter,
+  Mail,
   MessageSquareQuote,
   PieChart as PieIcon,
   Plus,
   Printer,
+  RefreshCw,
+  Search,
+  Send,
   Sparkles,
   Target,
   Trash2,
+  X,
 } from 'lucide-react';
 import type {
   AppDatabase,
@@ -29,6 +40,7 @@ import {
   type EvaluatedRenewal,
   type KpiSummary,
 } from '../utils/kpiAndAlarms.ts';
+import { NextDayPlannerModal } from './NextDayPlannerModal.tsx';
 
 interface ReportsCenterViewProps {
   db: AppDatabase;
@@ -37,6 +49,11 @@ interface ReportsCenterViewProps {
   initialTemplateId?: string;
   onSubmitReport: (report: Partial<SubmittedReport>) => Promise<void>;
   onDeleteReport: (id: string) => Promise<void>;
+  onPlanNextDay?: (payload: {
+    carryoverItems: { id: string; taskText: string; remarks: string; priority: boolean }[];
+    standardRoutineItemIds: string[];
+  }) => Promise<void>;
+  onNavigateToChecklist?: () => void;
   onNotifyToast: (msg: string) => void;
 }
 
@@ -107,6 +124,8 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   initialTemplateId,
   onSubmitReport,
   onDeleteReport,
+  onPlanNextDay,
+  onNavigateToChecklist,
   onNotifyToast,
 }) => {
   const [cadenceFilter, setCadenceFilter] = useState<'all' | MonitoringCadence>('all');
@@ -124,6 +143,17 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const [capacityRows, setCapacityRows] = useState<CapacityRow[]>(DEFAULT_CAPACITY_ROWS);
   const [copiedFlag, setCopiedFlag] = useState(false);
   const [viewingSavedReport, setViewingSavedReport] = useState<SubmittedReport | null>(null);
+
+  // Next Day Planner modal state
+  const [plannerOpen, setPlannerOpen] = useState(false);
+  const [showPostSaveCarryoverPrompt, setShowPostSaveCarryoverPrompt] = useState(false);
+
+  // Archive Filter & Search state
+  const [archiveDateFilter, setArchiveDateFilter] = useState<string>('');
+  const [archiveMonthFilter, setArchiveMonthFilter] = useState<string>('');
+  const [archiveCadenceFilter, setArchiveCadenceFilter] = useState<'all' | MonitoringCadence>('all');
+  const [archiveRecipientFilter, setArchiveRecipientFilter] = useState<string>('all');
+  const [archiveSearchQuery, setArchiveSearchQuery] = useState<string>('');
 
   useEffect(() => {
     if (initialTemplateId) {
@@ -214,6 +244,67 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const criticalTasks = useMemo(() => {
     return db.tasks.filter((t) => t.status !== 'Done' && t.kpiWeight >= 10);
   }, [db.tasks]);
+
+  // Filter archived reports based on user date, month, cadence, recipient and search
+  const filteredArchiveReports = useMemo(() => {
+    return db.reports.filter((rep) => {
+      // Date filter (e.g. 2026-11-10)
+      if (archiveDateFilter) {
+        const repCreatedDate = rep.createdAt ? rep.createdAt.slice(0, 10) : '';
+        const repPeriod = rep.periodLabel || '';
+        if (repCreatedDate !== archiveDateFilter && !repPeriod.includes(archiveDateFilter)) {
+          return false;
+        }
+      }
+
+      // Month filter (e.g. 2026-11)
+      if (archiveMonthFilter) {
+        const repCreatedMonth = rep.createdAt ? rep.createdAt.slice(0, 7) : '';
+        const repPeriod = rep.periodLabel || '';
+        if (repCreatedMonth !== archiveMonthFilter && !repPeriod.includes(archiveMonthFilter)) {
+          return false;
+        }
+      }
+
+      // Cadence filter
+      if (archiveCadenceFilter !== 'all' && rep.cadence !== archiveCadenceFilter) {
+        return false;
+      }
+
+      // Recipient filter
+      if (archiveRecipientFilter !== 'all' && rep.submittedTo !== archiveRecipientFilter) {
+        return false;
+      }
+
+      // Search keyword filter
+      if (archiveSearchQuery.trim()) {
+        const q = archiveSearchQuery.toLowerCase();
+        const textToSearch = [
+          rep.templateTitle,
+          rep.periodLabel,
+          rep.submittedTo,
+          rep.summaryText,
+          rep.critiqueCommentary,
+          rep.preparedBy,
+          ...Object.values(rep.structuredFields || {}),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (!textToSearch.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [
+    db.reports,
+    archiveDateFilter,
+    archiveMonthFilter,
+    archiveCadenceFilter,
+    archiveRecipientFilter,
+    archiveSearchQuery,
+  ]);
 
   // Intelligent auto-generation of Operational Critique, Commentary & Recommendations
   const buildSmartCritique = () => {
@@ -421,8 +512,8 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     return lines.filter(Boolean).join('\n');
   };
 
-  const handleCopyText = async () => {
-    const text = buildPlainTextReport(viewingSavedReport || undefined);
+  const handleCopyText = async (rep?: SubmittedReport) => {
+    const text = buildPlainTextReport(rep || viewingSavedReport || undefined);
     try {
       await navigator.clipboard.writeText(text);
       setCopiedFlag(true);
@@ -431,6 +522,18 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     } catch {
       onNotifyToast('কপি করতে সমস্যা হয়েছে, প্রিন্ট প্রিভিউ ব্যবহার করুন।');
     }
+  };
+
+  const handleMailto = (rep: SubmittedReport) => {
+    const to = rep.submittedTo.includes('MD')
+      ? 'md@speednetkhulna.com'
+      : rep.submittedTo.includes('Chairman')
+      ? 'chairman@speednetkhulna.com'
+      : 'management@speednetkhulna.com';
+    const cc = db.settings.branchOfficialCcEmail;
+    const subject = encodeURIComponent(`${db.settings.companyName} — ${rep.templateTitle} (${rep.periodLabel})`);
+    const body = encodeURIComponent(buildPlainTextReport(rep));
+    window.open(`mailto:${to}?cc=${cc}&subject=${subject}&body=${body}`, '_blank');
   };
 
   const handleSaveReport = async (e: React.FormEvent) => {
@@ -450,7 +553,13 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
       capacityRows: activeTemplate.hasCapacityTable ? capacityRows : undefined,
       critiqueCommentary: critiqueCommentary.trim(),
     });
+
     onNotifyToast('রিপোর্টটি পাই চার্ট ও সমালোচনাসহ সার্ভার আর্কাইভে সংরক্ষিত হয়েছে।');
+
+    // If it's a daily report and there are pending items, show the carryover prompt!
+    if (activeTemplate.cadence === 'daily' && pendingChecklists > 0) {
+      setShowPostSaveCarryoverPrompt(true);
+    }
   };
 
   const addCapacityRow = () => {
@@ -475,37 +584,134 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   // SVG Donut circumference: 2 * Math.PI * 52 ≈ 326.726
   const circleCircumference = 326.726;
   const completedStrokeLength = (checklistPercent / 100) * circleCircumference;
-  const pendingStrokeLength = circleCircumference - completedStrokeLength;
+
+  // Preset filter helpers
+  const handleFilterToday = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    setArchiveDateFilter(today);
+    setArchiveMonthFilter('');
+    onNotifyToast(`আজকের (${today}) সংরক্ষিত রিপোর্ট ফিল্টার করা হয়েছে।`);
+  };
+
+  const handleFilterYesterday = () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().slice(0, 10);
+    setArchiveDateFilter(yStr);
+    setArchiveMonthFilter('');
+    onNotifyToast(`গতকালকের (${yStr}) সংরক্ষিত রিপোর্ট ফিল্টার করা হয়েছে।`);
+  };
+
+  const handleFilterThisMonth = () => {
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    setArchiveMonthFilter(thisMonth);
+    setArchiveDateFilter('');
+    onNotifyToast(`চলতি মাসের (${thisMonth}) সকল রিপোর্ট ফিল্টার করা হয়েছে।`);
+  };
+
+  const handleFilterLastMonth = () => {
+    const lastM = new Date();
+    lastM.setMonth(lastM.getMonth() - 1);
+    const lmStr = lastM.toISOString().slice(0, 7);
+    setArchiveMonthFilter(lmStr);
+    setArchiveDateFilter('');
+    onNotifyToast(`গত মাসের (${lmStr}) সকল রিপোর্ট ফিল্টার করা হয়েছে।`);
+  };
+
+  const handleClearArchiveFilters = () => {
+    setArchiveDateFilter('');
+    setArchiveMonthFilter('');
+    setArchiveCadenceFilter('all');
+    setArchiveRecipientFilter('all');
+    setArchiveSearchQuery('');
+    onNotifyToast('আর্কাইভ ফিল্টার রিসেট করা হয়েছে — সকল রিপোর্ট দৃশ্যমান।');
+  };
 
   return (
     <div className="space-y-8">
+      {/* Post-Save Carryover Prompt Banner (Appears after daily report save when pending items exist) */}
+      {showPostSaveCarryoverPrompt && (
+        <section className="p-5 bg-gradient-to-r from-amber-500/15 via-amber-50/95 to-amber-100/70 border-2 border-amber-400 rounded-2xl shadow-md animate-in fade-in duration-200 no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="p-1 rounded-md bg-amber-600 text-white">
+                <Clock className="h-4 w-4" />
+              </span>
+              <h3 className="text-sm sm:text-base font-extrabold text-amber-950">
+                আজকের রিপোর্ট সংরক্ষিত হয়েছে! কিন্তু {pendingChecklists}টি দায়িত্ব পেন্ডিং রয়েছে
+              </h3>
+            </div>
+            <p className="text-xs text-slate-700 leading-relaxed max-w-2xl">
+              অসমাপ্ত কাজগুলো কি আগামী দিনের নতুন চেকলিস্টে <strong>[Carryover - জরুরী]</strong> হিসেবে নিয়ে যেতে চান? প্ল্যানার খুলে বাছাই করে নিন।
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowPostSaveCarryoverPrompt(false)}
+              className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+            >
+              পরে করবো
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowPostSaveCarryoverPrompt(false);
+                setPlannerOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 rounded-xl shadow-md transition-all cursor-pointer active:scale-95 whitespace-nowrap"
+            >
+              <Calendar className="h-4 w-4 text-amber-300" />
+              <span>পরবর্তী দিনের চেকলিস্ট প্ল্যানার সাজান</span>
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Top Template Selector (No-Print) */}
       <section className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm no-print">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-              COO অফিসিয়াল রিপোর্টিং ফরম্যাট ও সাবমিশন ম্যাট্রিক্স (Daily · Monthly · Yearly)
-            </h2>
-            <p className="text-xs text-slate-600 mt-1">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-blue-600" />
+              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+                COO অফিসিয়াল রিপোর্টিং ফরম্যাট ও সাবমিশন ম্যাট্রিক্স (Daily · Monthly · Yearly)
+              </h2>
+            </div>
+            <p className="text-xs text-slate-600">
               JD Section M অনুযায়ী সকল রিপোর্ট ফরম্যাট নিচে প্রস্তুত আছে। লাইভ অগ্রগতি চার্ট, পাই চার্ট ও যৌক্তিক মূল্যায়নসহ রিপোর্ট প্রিন্ট বা আর্কাইভ করুন।
             </p>
           </div>
 
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80 self-start shrink-0">
-            {(['all', 'daily', 'monthly', 'yearly'] as const).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCadenceFilter(c)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all capitalize whitespace-nowrap cursor-pointer ${
-                  cadenceFilter === c
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {c === 'all' ? 'সকল ফরম্যাট' : c}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {/* Quick Carryover Planner Button */}
+            <button
+              type="button"
+              onClick={() => setPlannerOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-900 bg-amber-400/20 hover:bg-amber-400/30 border border-amber-300 rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="আজকের পেন্ডিং কাজ দিয়ে আগামী দিনের চেকলিস্ট সাজান"
+            >
+              <Calendar className="h-3.5 w-3.5 text-amber-700" />
+              <span>পরবর্তী দিনের চেকলিস্ট সাজান</span>
+            </button>
+
+            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+              {(['all', 'daily', 'monthly', 'yearly'] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCadenceFilter(c)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all capitalize whitespace-nowrap cursor-pointer ${
+                    cadenceFilter === c
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {c === 'all' ? 'সকল ফরম্যাট' : c}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -549,7 +755,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900">
                 {viewingSavedReport
-                  ? 'সংরক্ষিত রিপোর্ট দেখছেন'
+                  ? 'সংরক্ষিত রিপোর্ট প্রিভিউ দেখছেন'
                   : `${activeTemplate.titleBn} — এডিটর`}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -571,17 +777,56 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
           </div>
 
           {viewingSavedReport ? (
-            <div className="py-6 space-y-4">
-              <p className="text-xs text-slate-600 leading-relaxed">
-                ডানপাশের প্রিভিউতে সংরক্ষিত রিপোর্টটি পাই চার্ট ও সমালোচনাসহ প্রদর্শিত হচ্ছে। আপনি এটি সরাসরি A4 পেজে প্রিন্ট করতে পারেন অথবা নতুন রিপোর্ট লিখতে নিচের বাটনে ক্লিক করুন।
-              </p>
-              <button
-                type="button"
-                onClick={() => setViewingSavedReport(null)}
-                className="w-full px-4 py-2.5 text-xs font-bold text-white bg-slate-900 rounded-xl hover:bg-black transition-all cursor-pointer shadow-sm"
-              >
-                নতুন রিপোর্ট এডিটরে ফিরে যান
-              </button>
+            <div className="py-5 space-y-4">
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-blue-900 font-bold text-xs">
+                  <Archive className="h-4 w-4 text-blue-600" />
+                  <span>আর্কাইভ থেকে লোডকৃত রিপোর্ট</span>
+                </div>
+                <div className="text-xs text-slate-700 leading-relaxed font-mono">
+                  <div>শিরোনাম: <strong>{viewingSavedReport.templateTitle}</strong></div>
+                  <div>তারিখ / পর্যায়: <strong>{viewingSavedReport.periodLabel}</strong></div>
+                  <div>প্রাপক: <strong>{viewingSavedReport.submittedTo}</strong></div>
+                  <div>সংরক্ষণের সময়: <strong>{viewingSavedReport.createdAt.slice(0, 10)}</strong></div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-sm transition-all cursor-pointer"
+                >
+                  <Printer className="h-4 w-4 text-amber-400" />
+                  <span>এই সংরক্ষিত রিপোর্টটি A4 প্রিন্ট / PDF করুন</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyText(viewingSavedReport)}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
+                >
+                  <Copy className="h-4 w-4 text-blue-600" />
+                  <span>ইমেইল / WhatsApp টেক্সট কপি করুন</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleMailto(viewingSavedReport)}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-all cursor-pointer"
+                >
+                  <Mail className="h-4 w-4 text-blue-700" />
+                  <span>ইমেইল ড্রাফট পাঠান (Mailto)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingSavedReport(null)}
+                  className="w-full px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 text-center cursor-pointer pt-2"
+                >
+                  ← নতুন রিপোর্ট এডিটরে ফিরে যান
+                </button>
+              </div>
             </div>
           ) : (
             <form onSubmit={handleSaveReport} className="space-y-4">
@@ -629,7 +874,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                 />
               </div>
 
-              {/* NEW SECTION: Operational Critique & Commentary Field */}
+              {/* Operational Critique & Commentary Field */}
               <div className="p-3.5 bg-gradient-to-br from-amber-50/50 via-white to-slate-50 border border-amber-300/80 rounded-xl space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
@@ -773,7 +1018,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={handleCopyText}
+                  onClick={() => handleCopyText()}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
                 >
                   {copiedFlag ? (
@@ -799,19 +1044,47 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         {/* Live Official Letterhead Preview (Right 7 Cols, Full Width on Print) */}
         <section className="xl:col-span-7 bg-white border border-slate-200/90 rounded-2xl p-7 sm:p-9 shadow-sm print-sheet">
           {/* Web-only action bar */}
-          <div className="flex items-center justify-between pb-3 mb-5 border-b border-slate-200 no-print">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 mb-5 border-b border-slate-200 no-print">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <FileSpreadsheet className="h-4 w-4 text-blue-600" />
-              <span>অফিসিয়াল লেটারহেড প্রিন্ট প্রিভিউ (A4 Format)</span>
+              <span>
+                {viewingSavedReport
+                  ? `সংরক্ষিত রিপোর্ট প্রিভিউ: ${viewingSavedReport.periodLabel}`
+                  : 'অফিসিয়াল লেটারহেড প্রিন্ট প্রিভিউ (A4 Format)'}
+              </span>
             </span>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-md transition-all cursor-pointer active:scale-95"
-            >
-              <Printer className="h-4 w-4 text-amber-400" />
-              <span>এই রিপোর্টটি সরাসরি A4 প্রিন্ট করুন</span>
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {viewingSavedReport && (
+                <button
+                  type="button"
+                  onClick={() => handleMailto(viewingSavedReport)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-all cursor-pointer"
+                  title="ইমেইল ক্লায়েন্টে পাঠান"
+                >
+                  <Mail className="h-3.5 w-3.5 text-blue-600" />
+                  <span>ইমেইল ড্রাফট</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleCopyText(viewingSavedReport || undefined)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
+              >
+                <Copy className="h-3.5 w-3.5 text-slate-600" />
+                <span>টেক্সট কপি</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-md transition-all cursor-pointer active:scale-95"
+              >
+                <Printer className="h-4 w-4 text-amber-400" />
+                <span>A4 সরাসরি প্রিন্ট</span>
+              </button>
+            </div>
           </div>
 
           {/* Official Letterhead Header */}
@@ -1056,7 +1329,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
             </div>
           </div>
 
-          {/* SECTION 2: OPERATIONAL CRITIQUE, REVIEW & REMARKS (REQUIRED BY USER: Report Critique & Commentary) */}
+          {/* SECTION 2: OPERATIONAL CRITIQUE, REVIEW & REMARKS (COO Evaluation & Critique) */}
           {previewReport.critiqueCommentary && (
             <div className="mt-5 border border-amber-300 bg-amber-50/30 rounded-xl p-4.5 break-inside-avoid print:break-inside-avoid">
               <div className="flex items-center gap-2 pb-2.5 mb-2.5 border-b border-amber-200">
@@ -1149,57 +1422,270 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         </section>
       </div>
 
-      {/* Saved Reports Archive (No-Print) */}
-      <section className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm no-print">
-        <h3 className="text-base font-bold text-slate-900">
-          সার্ভারে সংরক্ষিত পূর্ববর্তী রিপোর্ট আর্কাইভ ({db.reports.length}টি রিপোর্ট)
-        </h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          যেকোনো সময় পূর্ববর্তী রিপোর্ট ওপেন করে প্রিভিউ, পাই চার্ট, এক্সিকিউটিভ সমালোচনা ও পুনরায় প্রিন্ট করতে পারবেন।
-        </p>
-
-        <div className="mt-4 divide-y divide-slate-100">
-          {db.reports.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-500">
-              এখনো কোনো রিপোর্ট আর্কাইভে সেভ করা হয়নি।
+      {/* COMPREHENSIVE ARCHIVE FILTER & SEARCH CONSOLE (REQUIRED BY USER: Date & Month Filter) */}
+      <section className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-sm no-print space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-slate-200">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-900">
+                <Archive className="h-4 w-4" />
+              </span>
+              <h3 className="text-base font-bold text-slate-900">
+                সংরক্ষিত পূর্ববর্তী রিপোর্ট আর্কাইভ ও ফিল্টার কনসোল ({db.reports.length}টি সংরক্ষিত)
+              </h3>
             </div>
-          ) : (
-            db.reports.map((rep) => (
-              <div
-                key={rep.id}
-                className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            <p className="text-xs text-slate-600 mt-0.5">
+              নির্দিষ্ট দিন বা মাসের রিপোর্ট ফিল্টার করে দেখুন, সরাসরি A4 প্রিন্ট করুন অথবা WhatsApp/ইমেইলে পাঠানোর জন্য কপি করুন।
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              onClick={handleFilterToday}
+              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-800 font-semibold cursor-pointer"
+            >
+              আজকের রিপোর্ট
+            </button>
+            <button
+              type="button"
+              onClick={handleFilterYesterday}
+              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-800 font-semibold cursor-pointer"
+            >
+              গতকালকের
+            </button>
+            <button
+              type="button"
+              onClick={handleFilterThisMonth}
+              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-800 font-semibold cursor-pointer"
+            >
+              চলতি মাস
+            </button>
+            <button
+              type="button"
+              onClick={handleFilterLastMonth}
+              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-800 font-semibold cursor-pointer"
+            >
+              গত মাস
+            </button>
+            <button
+              type="button"
+              onClick={handleClearArchiveFilters}
+              className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-800 font-bold cursor-pointer"
+            >
+              সব রিপোর্ট ({db.reports.length})
+            </button>
+          </div>
+        </div>
+
+        {/* Detailed Filter Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
+          {/* Specific Date Filter */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+              <Calendar className="h-3 w-3 text-blue-600" />
+              <span>নির্দিষ্ট দিন (Date Filter)</span>
+            </label>
+            <input
+              type="date"
+              value={archiveDateFilter}
+              onChange={(e) => {
+                setArchiveDateFilter(e.target.value);
+                if (e.target.value) setArchiveMonthFilter('');
+              }}
+              className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
+            />
+          </div>
+
+          {/* Specific Month Filter */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+              <CalendarDays className="h-3 w-3 text-indigo-600" />
+              <span>নির্দিষ্ট মাস (Month Filter)</span>
+            </label>
+            <input
+              type="month"
+              value={archiveMonthFilter}
+              onChange={(e) => {
+                setArchiveMonthFilter(e.target.value);
+                if (e.target.value) setArchiveDateFilter('');
+              }}
+              className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
+            />
+          </div>
+
+          {/* Cadence Filter */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1">রিপোর্টের ধরন</label>
+            <select
+              value={archiveCadenceFilter}
+              onChange={(e) => setArchiveCadenceFilter(e.target.value as 'all' | MonitoringCadence)}
+              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer shadow-2xs"
+            >
+              <option value="all">সকল ক্যাডেন্স</option>
+              <option value="daily">Daily (দৈনিক)</option>
+              <option value="monthly">Monthly (মাসিক)</option>
+              <option value="yearly">Yearly (বাৎসরিক)</option>
+            </select>
+          </div>
+
+          {/* Recipient Filter */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1">জমা দেওয়ার প্রাপক</label>
+            <select
+              value={archiveRecipientFilter}
+              onChange={(e) => setArchiveRecipientFilter(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer shadow-2xs"
+            >
+              <option value="all">সকল প্রাপক</option>
+              <option value="Managing Director (MD)">Managing Director (MD)</option>
+              <option value="Chairman">Chairman</option>
+              <option value="Managing Director / Chairman">MD & Chairman (উভয়কে)</option>
+              <option value="CFO / Accounts Department">CFO</option>
+              <option value="Management Committee">Management</option>
+            </select>
+          </div>
+
+          {/* Search Query */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+              <Search className="h-3 w-3 text-slate-500" />
+              <span>সার্চ কি-ওয়ার্ড</span>
+            </label>
+            <input
+              type="text"
+              value={archiveSearchQuery}
+              onChange={(e) => setArchiveSearchQuery(e.target.value)}
+              placeholder="শিরোনাম বা মন্তব্য..."
+              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
+            />
+          </div>
+        </div>
+
+        {/* Filter Results & List */}
+        <div className="pt-2">
+          <div className="flex items-center justify-between text-xs text-slate-500 pb-2">
+            <span>
+              ফিল্টার অনুযায়ী মোট <strong>{filteredArchiveReports.length}টি</strong> রিপোর্ট পাওয়া গেছে
+            </span>
+            {(archiveDateFilter || archiveMonthFilter || archiveCadenceFilter !== 'all' || archiveRecipientFilter !== 'all' || archiveSearchQuery) && (
+              <button
+                type="button"
+                onClick={handleClearArchiveFilters}
+                className="text-blue-700 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
               >
-                <div>
-                  <div className="text-sm font-bold text-slate-900">{rep.templateTitle}</div>
-                  <div className="text-xs text-slate-500 font-mono tabular-nums mt-0.5">
-                    {rep.periodLabel} · To: <strong className="text-slate-700 font-sans">{rep.submittedTo}</strong> · Saved: {rep.createdAt.slice(0, 10)}
+                <X className="h-3 w-3" />
+                <span>ফিল্টার মুছুন</span>
+              </button>
+            )}
+          </div>
+
+          <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+            {filteredArchiveReports.length === 0 ? (
+              <div className="py-12 text-center space-y-2 bg-slate-50/50">
+                <Search className="h-8 w-8 text-slate-400 mx-auto" />
+                <p className="text-xs font-semibold text-slate-700">
+                  এই তারিখ বা ফিল্টারে কোনো রিপোর্ট পাওয়া যায়নি।
+                </p>
+                <button
+                  type="button"
+                  onClick={handleClearArchiveFilters}
+                  className="px-3 py-1 text-xs font-bold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer"
+                >
+                  সকল রিপোর্ট দেখুন
+                </button>
+              </div>
+            ) : (
+              filteredArchiveReports.map((rep) => (
+                <div
+                  key={rep.id}
+                  className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                    viewingSavedReport?.id === rep.id
+                      ? 'bg-blue-50/70 border-l-4 border-l-blue-600'
+                      : 'hover:bg-slate-50/80 bg-white'
+                  }`}
+                >
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-mono tabular-nums">
+                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold uppercase text-[10px]">
+                        {rep.cadence}
+                      </span>
+                      <span className="font-semibold text-slate-900">{rep.periodLabel}</span>
+                      <span className="text-slate-400">·</span>
+                      <span className="text-slate-600">তারিখ: {rep.createdAt.slice(0, 10)}</span>
+                      <span className="text-slate-400">·</span>
+                      <span className="text-slate-700 font-sans">প্রাপক: <strong>{rep.submittedTo}</strong></span>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-slate-950 truncate">
+                      {rep.templateTitle}
+                    </h4>
+
+                    {rep.summaryText && (
+                      <p className="text-xs text-slate-600 line-clamp-1 leading-relaxed">
+                        {rep.summaryText}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewingSavedReport(rep);
+                        window.scrollTo({ top: 380, behavior: 'smooth' });
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer shadow-2xs"
+                      title="লেটারহেডে প্রিভিউ ও সরাসরি প্রিন্ট করুন"
+                    >
+                      প্রিভিউ ও প্রিন্ট
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(rep)}
+                      className="p-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                      title="টেক্সট কপি"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleMailto(rep)}
+                      className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                      title="ইমেইল ড্রাফট"
+                    >
+                      <Mail className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onDeleteReport(rep.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="আর্কাইভ থেকে মুছুন"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewingSavedReport(rep);
-                      window.scrollTo({ top: 300, behavior: 'smooth' });
-                    }}
-                    className="px-3.5 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer"
-                  >
-                    প্রিভিউ ও প্রিন্ট
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteReport(rep.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                    title="মুছে ফেলুন"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
+              ))
+            )}
+          </div>
         </div>
       </section>
+
+      {/* Next Day Checklist Planner Modal */}
+      {onPlanNextDay && (
+        <NextDayPlannerModal
+          open={plannerOpen}
+          onClose={() => setPlannerOpen(false)}
+          db={db}
+          onPlanNextDay={onPlanNextDay}
+          onNotifyToast={onNotifyToast}
+          onNavigateToChecklist={onNavigateToChecklist}
+        />
+      )}
     </div>
   );
 };

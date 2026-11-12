@@ -6,6 +6,7 @@ import {
   Edit2,
   FileText,
   Filter,
+  ListPlus,
   Plus,
   Printer,
   RefreshCw,
@@ -15,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import type { AppDatabase, ChecklistItem, ChecklistStatus } from '../types.ts';
+import { NextDayPlannerModal } from './NextDayPlannerModal.tsx';
 
 interface ChecklistViewProps {
   db: AppDatabase;
@@ -23,6 +25,10 @@ interface ChecklistViewProps {
   onDeleteChecklistItem: (id: string) => Promise<void>;
   onResetChecklist: (cadence: 'daily' | 'monthly') => Promise<void>;
   onNavigateToReports: (templateId?: string) => void;
+  onPlanNextDay?: (payload: {
+    carryoverItems: { id: string; taskText: string; remarks: string; priority: boolean }[];
+    standardRoutineItemIds: string[];
+  }) => Promise<void>;
   onNotifyToast: (msg: string) => void;
 }
 
@@ -54,6 +60,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   onDeleteChecklistItem,
   onResetChecklist,
   onNavigateToReports,
+  onPlanNextDay,
   onNotifyToast,
 }) => {
   const [activeCadence, setActiveCadence] = useState<'daily' | 'monthly'>('daily');
@@ -62,6 +69,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [remarksDraft, setRemarksDraft] = useState('');
+  const [plannerOpen, setPlannerOpen] = useState(false);
 
   // Add Task Modal / Inline Drawer state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -181,6 +189,19 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               <Plus className="h-4 w-4" />
               <span>+ নতুন দায়িত্ব যুক্ত করুন</span>
             </button>
+
+            {/* Next Day Checklist Carryover Planner Button */}
+            {activeCadence === 'daily' && onPlanNextDay && (
+              <button
+                type="button"
+                onClick={() => setPlannerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-amber-900 bg-gradient-to-r from-amber-100 to-amber-200 border border-amber-300 rounded-xl hover:from-amber-200 hover:to-amber-300 transition-all whitespace-nowrap cursor-pointer shadow-xs active:scale-95"
+                title="আজকের পেন্ডিং কাজগুলো ক্যারি-ওভার করে আগামী দিনের চেকলিস্ট প্রস্তুত করুন"
+              >
+                <ListPlus className="h-4 w-4 text-amber-800" />
+                <span>পরবর্তী দিনের চেকলিস্ট প্ল্যানার</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -646,6 +667,17 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Next Day Checklist Carryover Planner Modal */}
+      {onPlanNextDay && (
+        <NextDayPlannerModal
+          open={plannerOpen}
+          onClose={() => setPlannerOpen(false)}
+          db={db}
+          onPlanNextDay={onPlanNextDay}
+          onNotifyToast={onNotifyToast}
+        />
+      )}
     </div>
   );
 };

@@ -186,6 +186,60 @@ async function startServer() {
     res.json(saveDb(db));
   });
 
+  app.post('/api/checklist/plan-next-day', (req, res) => {
+    const db = ensureDb();
+    const { carryoverItems, standardRoutineItemIds } = req.body as {
+      carryoverItems?: { id: string; taskText: string; remarks: string; priority: boolean }[];
+      standardRoutineItemIds?: string[];
+    };
+
+    // 1. Process daily checklist items
+    db.checklists = db.checklists.map((item) => {
+      if (item.cadence !== 'daily') return item;
+
+      // Check if item is in carryover
+      const carry = carryoverItems?.find((c) => c.id === item.id);
+      if (carry) {
+        const prefix = carry.priority ? '[Carryover - জরুরী] ' : '[Carryover] ';
+        const cleanText = item.taskText.replace(/^\[Carryover.*?\]\s*/, '');
+        return {
+          ...item,
+          taskText: `${prefix}${cleanText}`,
+          status: 'Pending',
+          remarks: carry.remarks ? `পূর্বের দিনের পেন্ডিং নোট: ${carry.remarks}` : item.remarks,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      // Standard routine item selected
+      if (standardRoutineItemIds?.includes(item.id)) {
+        const cleanText = item.taskText.replace(/^\[Carryover.*?\]\s*/, '');
+        return {
+          ...item,
+          taskText: cleanText,
+          status: 'Pending',
+          remarks: '',
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      // Default reset for other daily items
+      return {
+        ...item,
+        status: 'Pending',
+        remarks: '',
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    // 2. Also reset daily checked items on JD
+    db.jdItems = db.jdItems.map((jd) =>
+      jd.cadence === 'daily' ? { ...jd, dailyCheckedToday: false } : jd
+    );
+
+    res.json(saveDb(db));
+  });
+
   app.post('/api/tasks', (req, res) => {
     const db = ensureDb();
     const body = req.body;
