@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,12 +14,42 @@ const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'speednet_coo_db.json');
 
+let cachedDb: AppDatabase | null = null;
+let writeQueue: Promise<void> = Promise.resolve();
+
+function scheduleDiskWrite(snapshot: AppDatabase): void {
+  const payload = JSON.stringify(snapshot, null, 2);
+  writeQueue = writeQueue
+    .then(async () => {
+      if (!fs.existsSync(DATA_DIR)) {
+        await fsPromises.mkdir(DATA_DIR, { recursive: true });
+      }
+      const tmpFile = `${DB_FILE}.tmp`;
+      await fsPromises.writeFile(tmpFile, payload, 'utf-8');
+      await fsPromises.rename(tmpFile, DB_FILE);
+    })
+    .catch((err) => {
+      console.error('Failed to persist DB to disk:', err);
+    });
+}
+
+function getLocalTodayKey(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function ensureDb(): AppDatabase {
+  if (cachedDb) return cachedDb;
+
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(DB_FILE)) {
     const initial = createInitialDb();
+    cachedDb = initial;
     fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf-8');
     return initial;
   }
@@ -27,36 +58,56 @@ function ensureDb(): AppDatabase {
     const parsed = JSON.parse(raw) as AppDatabase;
     if (!parsed.jdItems || parsed.jdItems.length === 0) {
       const initial = createInitialDb();
+      cachedDb = initial;
       fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf-8');
       return initial;
     }
-    // Migrate existing DB if checklists array is missing or empty
+
+    let migrated = false;
     if (!parsed.checklists || parsed.checklists.length === 0) {
       const initial = createInitialDb();
       parsed.checklists = initial.checklists;
-      saveDb(parsed);
+      migrated = true;
     }
-    // Update official CC email if it was previously info@speednetkhulna.com
-    if (parsed.settings && (parsed.settings.branchOfficialCcEmail === 'info@speednetkhulna.com' || !parsed.settings.branchOfficialCcEmail.includes('dipu'))) {
+    if (
+      parsed.settings &&
+      (parsed.settings.branchOfficialCcEmail === 'info@speednetkhulna.com' ||
+        !parsed.settings.branchOfficialCcEmail.includes('dipu'))
+    ) {
       parsed.settings.branchOfficialCcEmail = 'dipu@speednetkhulna.com';
-      saveDb(parsed);
+      migrated = true;
+    }
+    if (!parsed.activeDate) {
+      parsed.activeDate = getLocalTodayKey();
+      migrated = true;
+    }
+    if (typeof parsed.revision !== 'number') {
+      parsed.revision = 1;
+      parsed.userModified = true;
+      migrated = true;
+    }
+
+    cachedDb = parsed;
+    if (migrated) {
+      scheduleDiskWrite(parsed);
     }
     return parsed;
   } catch {
     const initial = createInitialDb();
+    cachedDb = initial;
     fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf-8');
     return initial;
   }
 }
 
-function saveDb(db: AppDatabase): AppDatabase {
+function saveDb(db: AppDatabase, markUserModified = true): AppDatabase {
   db.updatedAt = new Date().toISOString();
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (markUserModified) {
+    db.revision = (db.revision || 0) + 1;
+    db.userModified = true;
   }
-  const tmpFile = `${DB_FILE}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2), 'utf-8');
-  fs.renameSync(tmpFile, DB_FILE);
+  cachedDb = db;
+  scheduleDiskWrite(db);
   return db;
 }
 
@@ -82,7 +133,18 @@ async function startServer() {
   ensureDb();
 
   const app = express();
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: '8mb' }));
+
+  app.get('/api/health', (_req, res) => {
+    const db = ensureDb();
+    res.json({
+      ok: true,
+      activeDate: db.activeDate,
+      revision: db.revision || 0,
+      userModified: Boolean(db.userModified),
+      updatedAt: db.updatedAt,
+    });
+  });
 
   app.get('/api/server-info', (_req, res) => {
     const db = ensureDb();
@@ -102,6 +164,52 @@ async function startServer() {
     res.json(db);
   });
 
+  // Roll over daily checklist items cleanly ONLY when refreshing on a new day
+  app.post('/api/day-rollover', (req, res) => {
+    const db = ensureDb();
+    const newDate = String(req.body?.newDate || getLocalTodayKey()).slice(0, 10);
+
+    if (db.activeDate === newDate) {
+      res.json(db);
+      return;
+    }
+
+    // Preserve all historical reports, tasks, renewals, JD statuses & monthly checklists.
+    // For daily checklist: carry forward Pending items cleanly, reset Completed items to Pending for the new day.
+    db.checklists = db.checklists.map((item) => {
+      if (item.cadence !== 'daily') return item;
+
+      const baseText = item.taskText.replace(/^\[গতকালের পেন্ডিং\]\s*/, '');
+      if (item.status === 'Pending') {
+        return {
+          ...item,
+          taskText: item.taskText.startsWith('[Carryover')
+            ? item.taskText
+            : `[গতকালের পেন্ডিং] ${baseText}`,
+          status: 'Pending',
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      // Yesterday's completed item becomes fresh Pending for today
+      return {
+        ...item,
+        taskText: baseText.replace(/^\[Carryover.*?\]\s*/, ''),
+        status: 'Pending',
+        remarks: '',
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    // Reset daily check ticks on daily JD items for the new day
+    db.jdItems = db.jdItems.map((jd) =>
+      jd.cadence === 'daily' ? { ...jd, dailyCheckedToday: false } : jd
+    );
+
+    db.activeDate = newDate;
+    res.json(saveDb(db, Boolean(db.userModified)));
+  });
+
   app.put('/api/settings', (req, res) => {
     const db = ensureDb();
     db.settings = { ...db.settings, ...req.body };
@@ -118,7 +226,7 @@ async function startServer() {
     db.jdItems[idx] = {
       ...db.jdItems[idx],
       ...req.body,
-      lastCheckedDate: new Date().toISOString().slice(0, 10),
+      lastCheckedDate: getLocalTodayKey(),
     };
     res.json(saveDb(db));
   });
@@ -193,15 +301,15 @@ async function startServer() {
       standardRoutineItemIds?: string[];
     };
 
-    // 1. Process daily checklist items
     db.checklists = db.checklists.map((item) => {
       if (item.cadence !== 'daily') return item;
 
-      // Check if item is in carryover
       const carry = carryoverItems?.find((c) => c.id === item.id);
       if (carry) {
         const prefix = carry.priority ? '[Carryover - জরুরী] ' : '[Carryover] ';
-        const cleanText = item.taskText.replace(/^\[Carryover.*?\]\s*/, '');
+        const cleanText = item.taskText
+          .replace(/^\[Carryover.*?\]\s*/, '')
+          .replace(/^\[গতকালের পেন্ডিং\]\s*/, '');
         return {
           ...item,
           taskText: `${prefix}${cleanText}`,
@@ -211,9 +319,10 @@ async function startServer() {
         };
       }
 
-      // Standard routine item selected
       if (standardRoutineItemIds?.includes(item.id)) {
-        const cleanText = item.taskText.replace(/^\[Carryover.*?\]\s*/, '');
+        const cleanText = item.taskText
+          .replace(/^\[Carryover.*?\]\s*/, '')
+          .replace(/^\[গতকালের পেন্ডিং\]\s*/, '');
         return {
           ...item,
           taskText: cleanText,
@@ -223,7 +332,6 @@ async function startServer() {
         };
       }
 
-      // Default reset for other daily items
       return {
         ...item,
         status: 'Pending',
@@ -232,7 +340,6 @@ async function startServer() {
       };
     });
 
-    // 2. Also reset daily checked items on JD
     db.jdItems = db.jdItems.map((jd) =>
       jd.cadence === 'daily' ? { ...jd, dailyCheckedToday: false } : jd
     );
@@ -252,9 +359,9 @@ async function startServer() {
       kpiWeight: Number(body.kpiWeight || 10),
       cadence: body.cadence || 'daily',
       assignedCoord: String(body.assignedCoord || 'Operations'),
-      dueDate: String(body.dueDate || new Date().toISOString().slice(0, 10)),
+      dueDate: String(body.dueDate || getLocalTodayKey()),
       status: body.status || 'Pending',
-      createdAt: new Date().toISOString().slice(0, 10),
+      createdAt: getLocalTodayKey(),
     };
     db.tasks.unshift(newTask);
     res.json(saveDb(db));
@@ -291,8 +398,8 @@ async function startServer() {
       jdNo: String(body.jdNo || '12'),
       referenceOrLocation: String(body.referenceOrLocation || '').trim(),
       authorityOrVendor: String(body.authorityOrVendor || '').trim(),
-      issueOrStartDate: String(body.issueOrStartDate || new Date().toISOString().slice(0, 10)),
-      expiryDate: String(body.expiryDate || new Date().toISOString().slice(0, 10)),
+      issueOrStartDate: String(body.issueOrStartDate || getLocalTodayKey()),
+      expiryDate: String(body.expiryDate || getLocalTodayKey()),
       alertDaysBefore: Number(body.alertDaysBefore || 30),
       costEstimateBdt: String(body.costEstimateBdt || '').trim(),
       renewalStatus: body.renewalStatus || 'Active',
@@ -353,10 +460,18 @@ async function startServer() {
       res.status(400).json({ error: 'Invalid backup JSON format' });
       return;
     }
-    res.json(saveDb(incoming));
+    const normalized: AppDatabase = {
+      ...incoming,
+      activeDate: incoming.activeDate || getLocalTodayKey(),
+      revision: Math.max(incoming.revision || 0, (cachedDb?.revision || 0)) + 1,
+      userModified: true,
+    };
+    res.json(saveDb(normalized, false));
   });
 
-  const isProd = process.env.NODE_ENV === 'production' || fs.existsSync(path.join(__dirname, 'dist', 'index.html')) && process.argv.includes('--prod');
+  const isProd =
+    process.env.NODE_ENV === 'production' ||
+    (fs.existsSync(path.join(__dirname, 'dist', 'index.html')) && process.argv.includes('--prod'));
 
   if (!isProd && process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -367,7 +482,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { maxAge: '1h' }));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

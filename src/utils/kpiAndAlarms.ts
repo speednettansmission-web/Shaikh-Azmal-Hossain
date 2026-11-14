@@ -112,6 +112,13 @@ export function evaluateRenewals(renewals: RenewalItem[], globalLeadDays = 30): 
     .sort((a, b) => a.daysRemaining - b.daysRemaining);
 }
 
+export function getLocalDateKey(d = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function playExecutiveAlarmChime(): void {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -132,6 +139,9 @@ export function playExecutiveAlarmChime(): void {
       osc.start(start);
       osc.stop(start + 0.45);
     });
+    window.setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 1000);
   } catch {
     // Ignore audio context restriction errors
   }

@@ -1,4 +1,5 @@
 import type { AppDatabase, JdItem, KpiGroup, ActionTask, RenewalItem, SubmittedReport, ChecklistItem } from '../types.ts';
+import { getLocalDateKey } from '../utils/kpiAndAlarms.ts';
 
 function offsetDateIso(daysFromToday: number): string {
   const d = new Date();
@@ -1153,6 +1154,9 @@ export function createInitialDb(): AppDatabase {
       soundAlarmEnabled: true,
     },
     updatedAt: new Date().toISOString(),
+    activeDate: getLocalDateKey(),
+    revision: 0,
+    userModified: false,
   };
 }
 

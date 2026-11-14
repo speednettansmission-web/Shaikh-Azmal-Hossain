@@ -128,6 +128,9 @@ export interface AppDatabase {
   checklists: ChecklistItem[];
   settings: AppSettings;
   updatedAt: string;
+  activeDate?: string;
+  revision?: number;
+  userModified?: boolean;
 }
 
 export interface ServerInfo {

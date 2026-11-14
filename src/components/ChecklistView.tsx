@@ -162,7 +162,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Banner and Summary Card with Royal Glossy Styling */}
-      <section className="bg-white/95 backdrop-blur-md border border-slate-200/80 rounded-2xl p-6 shadow-sm print:border-none print:shadow-none print:p-0">
+      <section className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm print:border-none print:shadow-none print:p-0">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-5 border-b border-slate-200">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-blue-900 to-indigo-900 text-amber-300 rounded-full text-xs font-semibold mb-2 shadow-xs print:hidden">
@@ -375,8 +375,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
       {/* Modal / Drawer to Add New Responsibility in Any Category */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-blue-100 text-blue-800 rounded-lg">

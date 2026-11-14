@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -15,7 +15,7 @@ import {
   Tag,
   X,
 } from 'lucide-react';
-import type { AppDatabase, ChecklistItem } from '../types.ts';
+import type { AppDatabase } from '../types.ts';
 
 interface NextDayPlannerModalProps {
   open: boolean;
@@ -37,8 +37,6 @@ export const NextDayPlannerModal: React.FC<NextDayPlannerModalProps> = ({
   onNotifyToast,
   onNavigateToChecklist,
 }) => {
-  if (!open) return null;
-
   // Filter daily checklist items
   const dailyChecklistItems = useMemo(() => {
     return (db.checklists || []).filter((item) => item.cadence === 'daily');
@@ -65,7 +63,7 @@ export const NextDayPlannerModal: React.FC<NextDayPlannerModalProps> = ({
   const [priorityFlags, setPriorityFlags] = useState<Record<string, boolean>>(() => {
     const map: Record<string, boolean> = {};
     pendingItems.forEach((item) => {
-      map[item.id] = true; // default carryover tasks as high priority
+      map[item.id] = true;
     });
     return map;
   });
@@ -76,6 +74,23 @@ export const NextDayPlannerModal: React.FC<NextDayPlannerModalProps> = ({
   });
 
   const [submitting, setSubmitting] = useState(false);
+
+  // Sync draft selections whenever modal opens
+  useEffect(() => {
+    if (!open) return;
+    setSelectedCarryoverIds(new Set(pendingItems.map((i) => i.id)));
+    const remarksMap: Record<string, string> = {};
+    const priorityMap: Record<string, boolean> = {};
+    pendingItems.forEach((item) => {
+      remarksMap[item.id] = item.remarks || '';
+      priorityMap[item.id] = true;
+    });
+    setCarryoverRemarks(remarksMap);
+    setPriorityFlags(priorityMap);
+    setSelectedRoutineIds(new Set(dailyChecklistItems.map((i) => i.id)));
+  }, [open, pendingItems, dailyChecklistItems]);
+
+  if (!open) return null;
 
   const toggleCarryover = (id: string) => {
     setSelectedCarryoverIds((prev) => {
@@ -145,7 +160,7 @@ export const NextDayPlannerModal: React.FC<NextDayPlannerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65">
       <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Header */}
         <div className="px-6 py-4.5 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white flex items-start justify-between border-b border-indigo-900/60 shrink-0">

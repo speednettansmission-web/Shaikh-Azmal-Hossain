@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FileText, Printer, Search, X } from 'lucide-react';
 import type { AppDatabase, AppSettings, JdItem, JdStatus } from '../types.ts';
 import type { KpiSummary } from '../utils/kpiAndAlarms.ts';
@@ -24,6 +24,42 @@ export const JdKpiView: React.FC<JdKpiViewProps> = ({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+
+  // Local buffered drafts for settings inputs to eliminate per-keystroke API calls
+  const [evalMonthDraft, setEvalMonthDraft] = useState(db.settings.evaluationMonth);
+  const [evaluatedByDraft, setEvaluatedByDraft] = useState(db.settings.evaluatedBy);
+  const [verificationNotesDraft, setVerificationNotesDraft] = useState(db.settings.verificationNotes);
+  const saveTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setEvalMonthDraft(db.settings.evaluationMonth);
+  }, [db.settings.evaluationMonth]);
+
+  useEffect(() => {
+    setEvaluatedByDraft(db.settings.evaluatedBy);
+  }, [db.settings.evaluatedBy]);
+
+  useEffect(() => {
+    setVerificationNotesDraft(db.settings.verificationNotes);
+  }, [db.settings.verificationNotes]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleSettingsSave = (patch: Partial<AppSettings>) => {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      onUpdateSettings(patch);
+      saveTimerRef.current = null;
+    }, 600);
+  };
 
   const groupMap = useMemo(() => {
     const map = new Map<string, (typeof db.kpiGroups)[number]>();
@@ -135,8 +171,17 @@ export const JdKpiView: React.FC<JdKpiViewProps> = ({
             <label className="block text-xs text-slate-500 mb-1">Evaluation Month</label>
             <input
               type="text"
-              value={db.settings.evaluationMonth}
-              onChange={(e) => onUpdateSettings({ evaluationMonth: e.target.value })}
+              value={evalMonthDraft}
+              onChange={(e) => {
+                const val = e.target.value;
+                setEvalMonthDraft(val);
+                scheduleSettingsSave({ evaluationMonth: val });
+              }}
+              onBlur={() => {
+                if (evalMonthDraft !== db.settings.evaluationMonth) {
+                  onUpdateSettings({ evaluationMonth: evalMonthDraft });
+                }
+              }}
               className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -144,8 +189,17 @@ export const JdKpiView: React.FC<JdKpiViewProps> = ({
             <label className="block text-xs text-slate-500 mb-1">Evaluated By</label>
             <input
               type="text"
-              value={db.settings.evaluatedBy}
-              onChange={(e) => onUpdateSettings({ evaluatedBy: e.target.value })}
+              value={evaluatedByDraft}
+              onChange={(e) => {
+                const val = e.target.value;
+                setEvaluatedByDraft(val);
+                scheduleSettingsSave({ evaluatedBy: val });
+              }}
+              onBlur={() => {
+                if (evaluatedByDraft !== db.settings.evaluatedBy) {
+                  onUpdateSettings({ evaluatedBy: evaluatedByDraft });
+                }
+              }}
               className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
@@ -236,8 +290,17 @@ export const JdKpiView: React.FC<JdKpiViewProps> = ({
             </label>
             <input
               type="text"
-              value={db.settings.verificationNotes}
-              onChange={(e) => onUpdateSettings({ verificationNotes: e.target.value })}
+              value={verificationNotesDraft}
+              onChange={(e) => {
+                const val = e.target.value;
+                setVerificationNotesDraft(val);
+                scheduleSettingsSave({ verificationNotes: val });
+              }}
+              onBlur={() => {
+                if (verificationNotesDraft !== db.settings.verificationNotes) {
+                  onUpdateSettings({ verificationNotes: verificationNotesDraft });
+                }
+              }}
               className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>

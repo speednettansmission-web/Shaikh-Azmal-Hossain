@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
   CheckSquare,
@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   Menu,
+  RefreshCw,
   Server,
   X,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ import { createInitialDb } from './data/seedData.ts';
 import {
   calculateKpiSummary,
   evaluateRenewals,
+  getLocalDateKey,
   playExecutiveAlarmChime,
 } from './utils/kpiAndAlarms.ts';
 import { OverviewView } from './components/OverviewView.tsx';
@@ -34,51 +36,195 @@ import { ServerGuideModal } from './components/ServerGuideModal.tsx';
 
 type NavTab = 'overview' | 'checklists' | 'jd-kpi' | 'alarms' | 'reports';
 
+const LOCAL_STORAGE_KEY = 'speednet_coo_db_v1';
+
+function readLocalSnapshot(): AppDatabase | null {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AppDatabase;
+    if (!parsed || !Array.isArray(parsed.jdItems) || !Array.isArray(parsed.kpiGroups)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalSnapshot(data: AppDatabase): void {
+  try {
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // Ignore storage quota / private mode errors
+  }
+}
+
 export default function App() {
-  const [db, setDb] = useState<AppDatabase | null>(null);
+  const initialLocal = useMemo(() => readLocalSnapshot(), []);
+  const fallbackDbRef = useRef<AppDatabase | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const [db, setDb] = useState<AppDatabase | null>(initialLocal);
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(() => initialLocal === null);
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [reportTemplateId, setReportTemplateId] = useState<string | undefined>(undefined);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [serverModalOpen, setServerModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [newDayAvailable, setNewDayAvailable] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
       setToastMessage((curr) => (curr === msg ? null : curr));
+      toastTimerRef.current = null;
     }, 3500);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const persistDbState = useCallback((nextDb: AppDatabase) => {
+    setDb(nextDb);
+    writeLocalSnapshot(nextDb);
+  }, []);
+
   const loadData = useCallback(async () => {
+    const localDb = readLocalSnapshot();
+    const todayKey = getLocalDateKey();
+
     try {
       const [stateRes, infoRes] = await Promise.all([
         fetch('/api/state'),
         fetch('/api/server-info'),
       ]);
+
+      let activeDb: AppDatabase | null = null;
+
       if (stateRes.ok) {
-        const data = (await stateRes.json()) as AppDatabase;
-        setDb(data);
+        const serverDb = (await stateRes.json()) as AppDatabase;
+        const serverHasUserEdits = Boolean(serverDb.userModified) || (serverDb.revision || 0) > 0;
+        const localHasUserEdits = Boolean(localDb && (localDb.userModified || (localDb.revision || 0) > 0));
+
+        // If server restarted cleanly (ephemeral disk wiped) while browser still holds user edits, restore to server!
+        if (
+          localDb &&
+          localHasUserEdits &&
+          (!serverHasUserEdits || (localDb.revision || 0) > (serverDb.revision || 0))
+        ) {
+          try {
+            const restoreRes = await fetch('/api/backup/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(localDb),
+            });
+            activeDb = restoreRes.ok ? ((await restoreRes.json()) as AppDatabase) : localDb;
+          } catch {
+            activeDb = localDb;
+          }
+        } else {
+          activeDb = serverDb;
+        }
+      } else if (localDb) {
+        activeDb = localDb;
       } else {
-        setDb(createInitialDb());
+        activeDb = createInitialDb();
       }
+
+      // Check for New Day rollover ONLY on load/refresh (same day refresh preserves everything!)
+      if (activeDb && activeDb.activeDate && activeDb.activeDate < todayKey) {
+        try {
+          const rolloverRes = await fetch('/api/day-rollover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newDate: todayKey }),
+          });
+          if (rolloverRes.ok) {
+            activeDb = (await rolloverRes.json()) as AppDatabase;
+            showToast(
+              `নতুন দিন (${todayKey}) শুরু হয়েছে — পূর্বের পেন্ডিং কাজ ও রিপোর্ট সংরক্ষণ করে নতুন দিনের চেকলিস্ট প্রস্তুত হয়েছে।`
+            );
+          }
+        } catch {
+          // Local rollover fallback if offline
+          activeDb = {
+            ...activeDb,
+            activeDate: todayKey,
+            checklists: activeDb.checklists.map((item) => {
+              if (item.cadence !== 'daily') return item;
+              const baseText = item.taskText.replace(/^\[গতকালের পেন্ডিং\]\s*/, '');
+              if (item.status === 'Pending') {
+                return {
+                  ...item,
+                  taskText: item.taskText.startsWith('[Carryover')
+                    ? item.taskText
+                    : `[গতকালের পেন্ডিং] ${baseText}`,
+                };
+              }
+              return {
+                ...item,
+                taskText: baseText.replace(/^\[Carryover.*?\]\s*/, ''),
+                status: 'Pending',
+                remarks: '',
+              };
+            }),
+            jdItems: activeDb.jdItems.map((jd) =>
+              jd.cadence === 'daily' ? { ...jd, dailyCheckedToday: false } : jd
+            ),
+          };
+        }
+      } else if (activeDb && !activeDb.activeDate) {
+        activeDb = { ...activeDb, activeDate: todayKey };
+      }
+
+      if (activeDb) {
+        persistDbState(activeDb);
+      }
+
       if (infoRes.ok) {
         const info = (await infoRes.json()) as ServerInfo;
         setServerInfo(info);
       }
     } catch {
-      setDb(createInitialDb());
+      const fallback = localDb || createInitialDb();
+      persistDbState(fallback);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [persistDbState, showToast]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const effectiveDb = useMemo(() => db || createInitialDb(), [db]);
+  // Lightweight midnight watcher: does NOT reset open screen; shows refresh notice only if calendar date changes
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const todayKey = getLocalDateKey();
+      if (db?.activeDate && db.activeDate < todayKey) {
+        setNewDayAvailable(todayKey);
+      }
+    }, 60000);
+    return () => window.clearInterval(intervalId);
+  }, [db?.activeDate]);
+
+  const effectiveDb = useMemo(() => {
+    if (db) return db;
+    if (!fallbackDbRef.current) {
+      fallbackDbRef.current = createInitialDb();
+    }
+    return fallbackDbRef.current;
+  }, [db]);
 
   const kpiSummary = useMemo(
     () => calculateKpiSummary(effectiveDb.kpiGroups, effectiveDb.jdItems),
@@ -101,21 +247,24 @@ export default function App() {
     [evaluatedRenewals]
   );
 
-  const apiMutate = async (url: string, method: string, body?: unknown) => {
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (res.ok) {
-        const updated = (await res.json()) as AppDatabase;
-        setDb(updated);
+  const apiMutate = useCallback(
+    async (url: string, method: string, body?: unknown) => {
+      try {
+        const res = await fetch(url, {
+          method,
+          headers: body ? { 'Content-Type': 'application/json' } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (res.ok) {
+          const updated = (await res.json()) as AppDatabase;
+          persistDbState(updated);
+        }
+      } catch {
+        showToast('সার্ভার সংযোগ বিচ্ছিন্ন, অনুগ্রহ করে পেজটি রিফ্রেশ করুন।');
       }
-    } catch {
-      showToast('সার্ভার সংযোগ বিচ্ছিন্ন, অনুগ্রহ করে পেজটি রিফ্রেশ করুন।');
-    }
-  };
+    },
+    [persistDbState, showToast]
+  );
 
   const handleNavigate = (tab: NavTab, tplId?: string) => {
     setActiveTab(tab);
@@ -258,7 +407,7 @@ export default function App() {
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50/30 text-slate-900 flex flex-col lg:flex-row">
       {/* Desktop Sidebar (264px width) with Royal Glossy Gradient */}
       <aside className="hidden lg:flex lg:w-[264px] lg:flex-col lg:fixed lg:inset-y-0 bg-gradient-to-b from-slate-950 via-slate-900 to-indigo-950 text-slate-100 border-r border-indigo-900/40 z-30 no-print shadow-xl">
-        <div className="h-16 px-6 flex items-center justify-between border-b border-indigo-900/50 bg-black/20 backdrop-blur-sm">
+        <div className="h-16 px-6 flex items-center justify-between border-b border-indigo-900/50 bg-slate-950/60">
           <button
             type="button"
             onClick={() => handleNavigate('overview')}
@@ -280,7 +429,7 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => handleNavigate(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-all cursor-pointer ${
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-colors cursor-pointer ${
                   active
                     ? 'bg-gradient-to-r from-blue-700 to-indigo-700 text-white shadow-md shadow-blue-900/30 ring-1 ring-white/20'
                     : 'text-slate-300 hover:bg-white/10 hover:text-white'
@@ -304,7 +453,7 @@ export default function App() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-indigo-900/50 bg-black/25 backdrop-blur-sm space-y-3">
+        <div className="p-4 border-t border-indigo-900/50 bg-slate-950/60 space-y-3">
           <button
             type="button"
             onClick={() => setServerModalOpen(true)}
@@ -395,8 +544,8 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 lg:pl-[264px] flex flex-col min-w-0">
-        {/* Clean 3-Zone Top Bar Contract with Royal Glossy Appearance */}
-        <header className="h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-8 flex items-center justify-between gap-8 sticky top-0 z-20 no-print shadow-xs">
+        {/* Clean 3-Zone Top Bar Contract */}
+        <header className="h-16 bg-white border-b border-slate-200/90 px-4 sm:px-8 flex items-center justify-between gap-8 sticky top-0 z-20 no-print shadow-xs">
           {/* Zone 1: Mobile Menu Trigger + Contextual Breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -450,12 +599,29 @@ export default function App() {
             <button
               type="button"
               onClick={() => handleNavigate('reports', 'daily-ops-report')}
-              className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 rounded-xl shadow-sm transition-all whitespace-nowrap shrink-0 cursor-pointer active:scale-95"
+              className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 rounded-xl shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer active:scale-95"
             >
               রিপোর্ট প্রস্তুত করুন
             </button>
           </div>
         </header>
+
+        {/* New Day Rollover Banner (Only shown if tab remained open past midnight without refreshing) */}
+        {newDayAvailable && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-8 py-2.5 flex items-center justify-between gap-4 text-xs text-amber-950 no-print">
+            <span className="font-semibold">
+              নতুন দিন ({newDayAvailable}) শুরু হয়েছে — পূর্বের পেন্ডিং কাজ ও রিপোর্ট সংরক্ষণ করে নতুন দিনের চেকলিস্ট পেতে পেজটি রিফ্রেশ করুন।
+            </span>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg cursor-pointer shrink-0"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>নতুন দিন লোড করুন</span>
+            </button>
+          </div>
+        )}
 
         {/* Main Viewport */}
         <main className="flex-1 p-4 sm:p-8 max-w-[1440px] w-full mx-auto">

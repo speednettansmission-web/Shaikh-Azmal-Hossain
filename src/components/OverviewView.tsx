@@ -155,12 +155,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     <div className="space-y-8">
       {/* Executive Welcome & Operations Header */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white p-6 sm:p-8 shadow-xl border border-indigo-900/60">
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-80 h-80 bg-gradient-to-br from-blue-600/20 via-indigo-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-1/3 -mb-20 w-72 h-72 bg-gradient-to-tr from-amber-500/15 via-rose-500/5 to-transparent rounded-full blur-3xl pointer-events-none" />
-
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/15 rounded-full text-xs font-semibold text-amber-300 backdrop-blur-md">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/15 rounded-full text-xs font-semibold text-amber-300">
               <Sparkles className="h-3.5 w-3.5 text-amber-400" />
               <span>SPEED NET Official COO Executive Console</span>
               <span className="text-white/40">·</span>
@@ -210,16 +207,13 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
       {/* 1-Month Advance Expiry Alarm Banner (Royal Amber/Gold Glossy) */}
       {urgentAlarms.length > 0 && (
-        <section className="relative overflow-hidden rounded-2xl border-2 border-amber-400/80 bg-gradient-to-r from-amber-500/15 via-amber-50/95 to-amber-100/60 p-6 shadow-md shadow-amber-900/10 backdrop-blur-md">
+        <section className="relative overflow-hidden rounded-2xl border-2 border-amber-400/80 bg-gradient-to-r from-amber-50 via-amber-50/90 to-amber-100/70 p-6 shadow-md shadow-amber-900/10">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2.5">
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600" />
-                </span>
+                <span className="inline-flex rounded-full h-3 w-3 bg-red-600 ring-4 ring-red-200" />
                 <span className="p-1.5 rounded-lg bg-red-600 text-white shadow-xs">
-                  <BellRing className="h-4 w-4 animate-bounce" />
+                  <BellRing className="h-4 w-4" />
                 </span>
                 <h2 className="text-base sm:text-lg font-bold text-amber-950 tracking-tight">
                   ১ মাস আগাম মেয়াদোত্তীর্ণ ও নবায়ন অ্যালার্ম ({urgentAlarms.length}টি লাইসেন্স/চুক্তি জরুরি)

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -36,6 +36,7 @@ import type {
   SubmittedReport,
 } from '../types.ts';
 import {
+  getLocalDateKey,
   REPORT_TEMPLATES,
   type EvaluatedRenewal,
   type KpiSummary,
@@ -154,6 +155,15 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const [archiveCadenceFilter, setArchiveCadenceFilter] = useState<'all' | MonitoringCadence>('all');
   const [archiveRecipientFilter, setArchiveRecipientFilter] = useState<string>('all');
   const [archiveSearchQuery, setArchiveSearchQuery] = useState<string>('');
+  const copiedTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (initialTemplateId) {
@@ -170,7 +180,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
 
   useEffect(() => {
     if (activeTemplate.cadence === 'daily') {
-      setPeriodLabel(new Date().toISOString().slice(0, 10));
+      setPeriodLabel(getLocalDateKey());
     } else if (activeTemplate.cadence === 'monthly') {
       setPeriodLabel(db.settings.evaluationMonth);
     } else {
@@ -517,7 +527,13 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     try {
       await navigator.clipboard.writeText(text);
       setCopiedFlag(true);
-      setTimeout(() => setCopiedFlag(false), 2000);
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = window.setTimeout(() => {
+        setCopiedFlag(false);
+        copiedTimerRef.current = null;
+      }, 2000);
       onNotifyToast('রিপোর্ট টেক্সট (SpeedNet Khulna CC ও সমালোচনা সহ) কপি করা হয়েছে।');
     } catch {
       onNotifyToast('কপি করতে সমস্যা হয়েছে, প্রিন্ট প্রিভিউ ব্যবহার করুন।');
@@ -533,7 +549,11 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
     const cc = db.settings.branchOfficialCcEmail;
     const subject = encodeURIComponent(`${db.settings.companyName} — ${rep.templateTitle} (${rep.periodLabel})`);
     const body = encodeURIComponent(buildPlainTextReport(rep));
-    window.open(`mailto:${to}?cc=${cc}&subject=${subject}&body=${body}`, '_blank');
+    const link = document.createElement('a');
+    link.href = `mailto:${to}?cc=${cc}&subject=${subject}&body=${body}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleSaveReport = async (e: React.FormEvent) => {
@@ -570,7 +590,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
         linkType: 'IIG',
         changeType: 'Upgrade',
         changeMbps: 100,
-        effectiveDate: new Date().toISOString().slice(0, 10),
+        effectiveDate: getLocalDateKey(),
         currentCapacityMbps: 1000,
         workOrderRef: 'WO-Ref',
       },
@@ -587,7 +607,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
 
   // Preset filter helpers
   const handleFilterToday = () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalDateKey();
     setArchiveDateFilter(today);
     setArchiveMonthFilter('');
     onNotifyToast(`আজকের (${today}) সংরক্ষিত রিপোর্ট ফিল্টার করা হয়েছে।`);
@@ -596,14 +616,14 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const handleFilterYesterday = () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yStr = yesterday.toISOString().slice(0, 10);
+    const yStr = getLocalDateKey(yesterday);
     setArchiveDateFilter(yStr);
     setArchiveMonthFilter('');
     onNotifyToast(`গতকালকের (${yStr}) সংরক্ষিত রিপোর্ট ফিল্টার করা হয়েছে।`);
   };
 
   const handleFilterThisMonth = () => {
-    const thisMonth = new Date().toISOString().slice(0, 7);
+    const thisMonth = getLocalDateKey().slice(0, 7);
     setArchiveMonthFilter(thisMonth);
     setArchiveDateFilter('');
     onNotifyToast(`চলতি মাসের (${thisMonth}) সকল রিপোর্ট ফিল্টার করা হয়েছে।`);
@@ -612,7 +632,7 @@ export const ReportsCenterView: React.FC<ReportsCenterViewProps> = ({
   const handleFilterLastMonth = () => {
     const lastM = new Date();
     lastM.setMonth(lastM.getMonth() - 1);
-    const lmStr = lastM.toISOString().slice(0, 7);
+    const lmStr = getLocalDateKey(lastM).slice(0, 7);
     setArchiveMonthFilter(lmStr);
     setArchiveDateFilter('');
     onNotifyToast(`গত মাসের (${lmStr}) সকল রিপোর্ট ফিল্টার করা হয়েছে।`);

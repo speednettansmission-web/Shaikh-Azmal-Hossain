@@ -216,7 +216,7 @@ export const ExpiryAlarmsView: React.FC<ExpiryAlarmsViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Alarm Control Panel with Royal Gloss Styling */}
-      <section className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-6 sm:p-7 shadow-sm">
+      <section className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-7 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 pb-5 border-b border-slate-200">
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-amber-500/10 via-amber-100/50 to-amber-50 border border-amber-300 rounded-full text-xs font-bold text-amber-950">
@@ -677,7 +677,7 @@ export const ExpiryAlarmsView: React.FC<ExpiryAlarmsViewProps> = ({
 
       {/* Correction / Edit Modal */}
       {editingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white flex items-center justify-between border-b border-indigo-900/60">
               <div className="flex items-center gap-2">
